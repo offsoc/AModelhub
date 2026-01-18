@@ -34,6 +34,19 @@
     <!-- Metadata Content -->
     <transition name="fade" mode="out-in">
       <div v-if="metadata && !loading" class="space-y-6">
+        <!-- Frozen Status Banner -->
+        <div v-if="metadata.is_frozen" class="mb-6 p-6 bg-indigo-50/80 dark:bg-indigo-900/10 border border-indigo-200 dark:border-indigo-800 rounded-3xl shadow-sm flex items-center justify-between">
+           <div class="flex items-center gap-4">
+              <div class="p-3 bg-indigo-500 text-white rounded-2xl shadow-lg shadow-indigo-500/20">
+                 <div class="i-carbon-locked text-3xl" />
+              </div>
+              <div>
+                 <h2 class="text-lg font-black text-indigo-900 dark:text-indigo-100">Dataset Version Frozen</h2>
+                 <p class="text-xs text-indigo-600 dark:text-indigo-400">This snapshot is locked for production use. Hash: <span class="font-mono text-[10px]">{{ metadata.signature }}</span></p>
+              </div>
+           </div>
+           <el-tag type="info" effect="dark" round class="px-4">Snapshot #{{ metadata.snapshot_id }}</el-tag>
+        </div>
         <!-- Overview Section -->
         <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
           <!-- Rows Stat -->
@@ -102,6 +115,9 @@
                 Feature Definitions & Quality
               </h3>
               <div class="flex gap-2">
+                <el-button v-if="!metadata.is_frozen" size="small" type="warning" plain round @click="freezeDataset">
+                  <div class="i-carbon-locked mr-1" /> Freeze Revision
+                </el-button>
                 <el-tag v-if="metadata.compliance_status === 'flagged'" size="small" type="danger" effect="dark" round>
                   <div class="i-carbon-warning-alt mr-1 inline-block" /> Flagged
                 </el-tag>
@@ -147,9 +163,14 @@
                        </div>
                     </td>
                     <td class="px-6 py-4">
-                      <el-button size="small" circle plain @click="showFeatureStats(name)">
-                        <div class="i-carbon-chart-multitype text-blue-500" />
-                      </el-button>
+                      <div class="flex items-center gap-2">
+                        <el-button size="small" circle plain @click="showFeatureStats(name)">
+                          <div class="i-carbon-chart-multitype text-blue-500" />
+                        </el-button>
+                        <el-tooltip v-if="splitStats?.[name]?.schema_warnings?.length" :content="splitStats[name].schema_warnings.join(' | ')" placement="top">
+                           <div class="i-carbon-warning-alt text-amber-500 cursor-help" />
+                        </el-tooltip>
+                      </div>
                     </td>
                   </tr>
                 </tbody>
@@ -220,6 +241,12 @@
                        <span class="text-[10px] text-gray-400">{{ formatDate(item.created_at) }}</span>
                     </div>
                     <div class="text-[10px] text-gray-500 font-mono truncate">Script: {{ item.script_path }}</div>
+                    <div v-if="item.upstream_repos && item.upstream_repos.length" class="mt-2 pt-2 border-t border-gray-100 dark:border-gray-800">
+                       <div class="text-[9px] font-bold text-gray-400 uppercase mb-1">Upstream Sources</div>
+                       <div class="flex flex-wrap gap-1">
+                          <el-tag v-for="up in item.upstream_repos" :key="up" size="small" type="info" plain class="text-[9px]">{{ up }}</el-tag>
+                       </div>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -290,7 +317,7 @@
 <script setup>
 import { ref, onMounted, watch } from 'vue'
 import axios from 'axios'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 
 const props = defineProps({
   namespace: String,
@@ -463,6 +490,30 @@ async function showFeatureStats(name) {
              </div>
           </div>
           ${stats.avg_text_length ? `<div class="p-3 bg-gray-50 rounded-lg"><div class="text-[10px] text-gray-400 font-bold uppercase">Avg Text Length</div><div class="text-sm font-mono">${stats.avg_text_length.toFixed(1)} chars</div></div>` : ''}
+          ${stats.image_stats ? `
+             <div class="p-3 bg-gray-50 rounded-lg">
+                <div class="text-[10px] text-gray-400 font-bold uppercase">Resolution (Avg / Min / Max)</div>
+                <div class="text-xs font-mono">${stats.image_stats.avg_width.toFixed(0)}x${stats.image_stats.avg_height.toFixed(0)} | ${stats.image_stats.min_size[0]}x${stats.image_stats.min_size[1]} | ${stats.image_stats.max_size[0]}x${stats.image_stats.max_size[1]}</div>
+             </div>
+          ` : ''}
+          ${stats.label_distribution ? `
+             <div class="space-y-1">
+                <div class="text-[10px] text-gray-400 font-bold uppercase mb-2">Class Distribution</div>
+                <div class="space-y-2 max-h-40 overflow-y-auto pr-2 custom-scrollbar text-[10px]">
+                   ${Object.entries(stats.label_distribution).map(([label, count]) => `
+                      <div class="flex flex-col gap-1 mb-2">
+                         <div class="flex justify-between font-bold">
+                            <span class="truncate max-w-[150px]">${label}</span>
+                            <span>${count} (${((count/stats.count)*100).toFixed(1)}%)</span>
+                         </div>
+                         <div class="w-full h-1 bg-gray-100 rounded-full overflow-hidden">
+                            <div class="h-full bg-blue-500" style="width: ${(count/stats.count)*100}%"></div>
+                         </div>
+                      </div>
+                   `).join('')}
+                </div>
+             </div>
+          ` : ''}
        </div>
        `,
        `Column Statistics: ${name}`,
@@ -531,6 +582,31 @@ onMounted(async () => {
        // Silent fail
      }
 })
+async function freezeDataset() {
+   try {
+      await ElMessageBox.confirm(
+         'This will freeze the current dataset revision and generate a signed snapshot for production use. This action ensures immutability for audit purposes.',
+         'Freeze Dataset Version',
+         {
+            confirmButtonText: 'Freeze',
+            cancelButtonText: 'Cancel',
+            type: 'warning',
+            roundButton: true
+         }
+      )
+      
+      const response = await axios.post(`/api/datasets/${props.namespace}/${props.name}/snapshot`, {}, {
+         params: { revision: 'main' }
+      })
+      
+      ElMessage.success('Dataset version frozen successfully')
+      await loadMetadata()
+   } catch (err) {
+      if (err !== 'cancel') {
+         ElMessage.error(err.response?.data?.detail || 'Failed to freeze dataset')
+      }
+   }
+}
 </script>
 
 <style scoped>

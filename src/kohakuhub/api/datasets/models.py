@@ -35,6 +35,9 @@ class DatasetMetadata(BaseModel):
     compliance_status: Optional[str] = "pending" # pending, clean, flagged
     compliance_report: Optional[Dict[str, Any]] = None
     lineage: Optional[List[Dict[str, Any]]] = None
+    is_frozen: bool = False
+    snapshot_id: Optional[int] = None
+    signature: Optional[str] = None
     error: Optional[str] = None
 
 class ColumnStatistics(BaseModel):
@@ -51,6 +54,9 @@ class ColumnStatistics(BaseModel):
     skew: Optional[float] = None
     outlier_count: Optional[int] = None
     avg_text_length: Optional[float] = None
+    label_distribution: Optional[Dict[str, int]] = None
+    image_stats: Optional[Dict[str, Any]] = None
+    schema_warnings: Optional[List[str]] = None
 
 class SplitStatisticsResponse(BaseModel):
     split: str
@@ -87,7 +93,7 @@ class AccessRequestResponse(BaseModel):
 
 class DatasetLineageCreate(BaseModel):
     revision: str
-    source_repos: List[str]
+    upstream_repos: List[str]
     script_path: str
     script_hash: str
     mapping_function_hash: Optional[str] = None
@@ -96,7 +102,7 @@ class DatasetLineageCreate(BaseModel):
 
 class LineageResponse(BaseModel):
     revision: str
-    source_repos: List[str]
+    upstream_repos: List[str]
     script_path: str
     script_hash: str
     mapping_function_hash: Optional[str] = None

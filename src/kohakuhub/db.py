@@ -551,12 +551,31 @@ class DatasetLineage(BaseModel):
         Repository, backref="lineages", on_delete="CASCADE", index=True
     )
     revision = CharField(index=True)  # Git revision (commit SHA)
-    source_repos = TextField()  # JSON list of [namespace/repo@revision, ...]
+    upstream_repos = TextField(null=True)  # JSON list of [namespace/repo@revision, ...]
     script_path = CharField()  # Path to processing script in repo
     script_hash = CharField()  # Content hash of the processing script
     mapping_function_hash = CharField(null=True)  # Specific hash for mapping function if applicable
     config = TextField(null=True)  # JSON configuration used for processing
     created_at = DateTimeField(default=partial(datetime.now, tz=timezone.utc))
+
+    class Meta:
+        indexes = ((("repository", "revision"), True),)
+
+
+class DatasetSnapshot(BaseModel):
+    """Immutable snapshots of dataset metadata for production use."""
+
+    id = AutoField()
+    repository = ForeignKeyField(
+        Repository, backref="snapshots", on_delete="CASCADE", index=True
+    )
+    revision = CharField(index=True)  # Git revision (commit SHA)
+    signature = CharField()  # SHA256 of metadata content
+    frozen_at = DateTimeField(default=partial(datetime.now, tz=timezone.utc))
+    frozen_by = ForeignKeyField(
+        User, backref="frozen_snapshots", on_delete=DB_ON_DELETE_SET_NULL, null=True
+    )
+    metadata_dump = TextField()  # JSON dump of metadata at freeze time
 
     class Meta:
         indexes = ((("repository", "revision"), True),)
@@ -586,6 +605,7 @@ def init_db():
             ConfirmationToken,
             DatasetAccessRequest,
             DatasetLineage,
+            DatasetSnapshot,
         ],
         safe=True,
     )

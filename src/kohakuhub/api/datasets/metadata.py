@@ -5,7 +5,7 @@ import re
 import json
 from typing import Any, Dict, List, Optional
 from functools import lru_cache
-from kohakuhub.db import DatasetLineage
+from kohakuhub.db import Repository, DatasetLineage, DatasetSnapshot
 
 import datasets
 from datasets import load_dataset, get_dataset_config_names, DatasetInfo
@@ -33,6 +33,8 @@ def _scan_for_pii_and_sensitive(text: str) -> Dict[str, Any]:
         "phone": r"\b\d{3}[-.]?\d{3}[-.]?\d{4}\b",
         "ssn": r"\b\d{3}-\d{2}-\d{4}\b",
         "ipv4": r"\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\b",
+        "chinese_id": r"\b\d{17}[\dXx]\b",
+        "credit_card": r"\b(?:\d[ -]*?){13,16}\b",
     }
     
     # Sensitive words (example list)
@@ -120,6 +122,29 @@ def _calculate_feature_type_distribution(features: Features) -> Dict[str, int]:
         count_type(feature)
     
     return distribution
+def validate_schema_consistency(sample: List[Dict[str, Any]], expected_features: Features) -> List[str]:
+    """Validate that sample rows match the expected schema and check for None values."""
+    warnings = []
+    if not sample:
+        return warnings
+
+    for key, feature in expected_features.items():
+        null_count = sum(1 for row in sample if row.get(key) is None)
+        null_ratio = null_count / len(sample)
+        
+        if null_ratio > 0.1:
+            warnings.append(f"Column '{key}' has high null ratio: {null_ratio:.1%}")
+            
+        # Basic type checking
+        if isinstance(feature, Value):
+            for i, row in enumerate(sample[:10]): # Check first 10
+                val = row.get(key)
+                if val is not None:
+                    # Very basic check
+                    if 'int' in str(feature.dtype) and not isinstance(val, (int, np.integer)):
+                        warnings.append(f"Type mismatch in '{key}': expected {feature.dtype}, found {type(val).__name__} at row {i}")
+                        break
+    return warnings
 
 
 @lru_cache(maxsize=128)
@@ -227,6 +252,22 @@ def get_dataset_metadata(
         compliance_status = "verified"
         compliance_report = None
 
+        # Check for frozen status
+        is_frozen = False
+        snapshot_id = None
+        signature = None
+        if repo_obj:
+            snapshot = DatasetSnapshot.get_or_none(
+                DatasetSnapshot.repository == repo_obj,
+                DatasetSnapshot.revision == info.download_checksum if hasattr(info, 'download_checksum') else None
+            )
+            # If revision matches builder info or we just check latest frozen for this repo
+            # Actually better to look for exact revision match
+            if snapshot:
+                is_frozen = True
+                snapshot_id = snapshot.id
+                signature = snapshot.signature
+
         return DatasetMetadata(
             configs=configs,
             current_config=current_config,
@@ -239,7 +280,10 @@ def get_dataset_metadata(
             license=getattr(info, 'license', None),
             lineage=lineage_data,
             compliance_status=compliance_status,
-            compliance_report=compliance_report
+            compliance_report=compliance_report,
+            is_frozen=is_frozen,
+            snapshot_id=snapshot_id,
+            signature=signature
         )
         
     except Exception as e:
@@ -351,6 +395,33 @@ def get_split_statistics(
                     if not stats_dict.get("most_common"):
                          stats_dict["most_common"] = max(unique_values, key=valid_values.count) if valid_values else None
                 
+                # Label distribution
+                if isinstance(features.get(key), ClassLabel):
+                    dist = {}
+                    for v in valid_values:
+                        label_name = features[key].int2str(v) if hasattr(features[key], 'int2str') else str(v)
+                        dist[label_name] = dist.get(label_name, 0) + 1
+                    stats_dict["label_distribution"] = dist
+
+                # Image stats
+                if 'Image' in type(features.get(key)).__name__:
+                    widths = []
+                    heights = []
+                    for img in valid_values:
+                        if hasattr(img, 'size'): # PIL image
+                            widths.append(img.size[0])
+                            heights.append(img.size[1])
+                    if widths:
+                        stats_dict["image_stats"] = {
+                            "avg_width": sum(widths) / len(widths),
+                            "avg_height": sum(heights) / len(heights),
+                            "min_size": [min(widths), min(heights)],
+                            "max_size": [max(widths), max(heights)]
+                        }
+            
+            # Schema warnings
+            stats_dict["schema_warnings"] = validate_schema_consistency(sample, {key: features[key]})
+            
             column_stats[key] = ColumnStatistics(**stats_dict)
         
         return SplitStatisticsResponse(
