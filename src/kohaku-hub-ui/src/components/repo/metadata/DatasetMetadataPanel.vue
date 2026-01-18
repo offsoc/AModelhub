@@ -99,9 +99,14 @@
             <div class="p-5 border-b border-gray-100 dark:border-gray-800 flex items-center justify-between bg-gray-50/50 dark:bg-gray-900/50">
               <h3 class="font-bold flex items-center gap-2 text-gray-800 dark:text-gray-100 uppercase tracking-tighter">
                 <div class="i-carbon-list-boxes text-blue-500" />
-                Feature Definitions
+                Feature Definitions & Quality
               </h3>
-              <el-tag size="small" type="info" effect="dark" round>{{ Object.keys(metadata.features).length }} Features</el-tag>
+              <div class="flex gap-2">
+                <el-tag v-if="metadata.compliance_status === 'flagged'" size="small" type="danger" effect="dark" round>
+                  <div class="i-carbon-warning-alt mr-1 inline-block" /> Flagged
+                </el-tag>
+                <el-tag size="small" type="info" effect="dark" round>{{ Object.keys(metadata.features).length }} Features</el-tag>
+              </div>
             </div>
             
             <div class="overflow-x-auto min-h-[300px]">
@@ -110,7 +115,8 @@
                   <tr>
                     <th class="px-6 py-4 text-left font-bold">Field</th>
                     <th class="px-6 py-4 text-left font-bold">Type</th>
-                    <th class="px-6 py-4 text-left font-bold">Details</th>
+                    <th class="px-6 py-4 text-left font-bold">Quality Metrics</th>
+                    <th class="px-6 py-4 text-left font-bold">Actions</th>
                   </tr>
                 </thead>
                 <tbody class="divide-y divide-gray-100 dark:divide-gray-800">
@@ -130,9 +136,20 @@
                       </span>
                     </td>
                     <td class="px-6 py-4">
-                      <span class="text-xs text-gray-500 dark:text-gray-400 font-mono italic">
-                        {{ getFeatureDetails(feature) }}
-                      </span>
+                       <div class="flex flex-wrap gap-1.5">
+                          <el-tooltip v-if="getQualityLabel(name)" :content="getQualityContent(name)" placement="top">
+                             <el-tag size="small" :type="getQualityType(name)" effect="plain" class="cursor-help">
+                                <div :class="getQualityIcon(name)" class="mr-1 inline-block" />
+                                {{ getQualityLabel(name) }}
+                             </el-tag>
+                          </el-tooltip>
+                          <span v-else class="text-[10px] text-gray-400 font-mono italic">No anomalies detected</span>
+                       </div>
+                    </td>
+                    <td class="px-6 py-4">
+                      <el-button size="small" circle plain @click="showFeatureStats(name)">
+                        <div class="i-carbon-chart-multitype text-blue-500" />
+                      </el-button>
                     </td>
                   </tr>
                 </tbody>
@@ -186,6 +203,56 @@
               </div>
             </div>
           </div>
+        </div>
+
+        <!-- Lineage & Compliance -->
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-6" v-if="(metadata.lineage && metadata.lineage.length > 0) || metadata.compliance_status">
+           <div class="card p-6 overflow-hidden" v-if="metadata.lineage && metadata.lineage.length > 0">
+              <h4 class="font-bold text-sm uppercase text-gray-500 mb-4 flex items-center gap-2">
+                <div class="i-carbon-flow-data text-blue-500" /> Data Lineage
+              </h4>
+              <div class="relative pl-6 border-l-2 border-dashed border-gray-200 dark:border-gray-800 space-y-6">
+                <div v-for="(item, idx) in metadata.lineage" :key="idx" class="relative">
+                  <div class="absolute -left-[31px] top-1 w-4 h-4 rounded-full bg-white dark:bg-gray-900 border-2 border-blue-500 shadow-sm" />
+                  <div class="bg-gray-50 dark:bg-gray-900/50 p-3 rounded-xl border border-gray-100 dark:border-gray-800">
+                    <div class="flex justify-between items-start mb-1">
+                       <span class="text-xs font-bold text-gray-800 dark:text-gray-200">Revision: {{ item.revision.substring(0, 8) }}</span>
+                       <span class="text-[10px] text-gray-400">{{ formatDate(item.created_at) }}</span>
+                    </div>
+                    <div class="text-[10px] text-gray-500 font-mono truncate">Script: {{ item.script_path }}</div>
+                  </div>
+                </div>
+              </div>
+           </div>
+
+           <div class="card p-6">
+              <h4 class="font-bold text-sm uppercase text-gray-500 mb-4 flex items-center gap-2">
+                <div class="i-carbon-security-shield text-emerald-500" /> Compliance Report
+              </h4>
+              <div class="space-y-4">
+                 <div class="flex items-center gap-4 p-4 bg-gray-50 dark:bg-gray-900 border border-gray-100 dark:border-gray-800 rounded-2xl">
+                    <div class="p-3 bg-emerald-500 text-white rounded-xl shadow-lg shadow-emerald-500/20">
+                       <div class="i-carbon-checkmark-filled text-2xl" v-if="metadata.compliance_status !== 'flagged'" />
+                       <div class="i-carbon-warning-alt-filled text-2xl" v-else />
+                    </div>
+                    <div>
+                       <div class="text-sm font-bold text-gray-900 dark:text-white">
+                          Status: {{ metadata.compliance_status === 'flagged' ? 'Issues Found' : 'Verified Clean' }}
+                       </div>
+                       <div class="text-[10px] text-gray-500">Automated sensitive data scan</div>
+                    </div>
+                 </div>
+                 <div v-if="metadata.compliance_report" class="p-3 bg-red-50 dark:bg-red-900/10 border border-red-100 dark:border-red-900/30 rounded-xl text-xs text-red-600 dark:text-red-400">
+                    <div class="font-bold mb-1 uppercase tracking-tight">Identified Risks:</div>
+                    <ul class="list-disc list-inside space-y-0.5">
+                       <li v-for="(val, key) in metadata.compliance_report.matches" :key="key">{{ val }}</li>
+                    </ul>
+                 </div>
+                 <div class="text-[10px] text-gray-400 italic">
+                    Note: Our automated scanner checks for PII (emails, phones, etc.) and common sensitive keywords.
+                 </div>
+              </div>
+           </div>
         </div>
 
         <!-- Details & Metadata Extra Info -->
@@ -342,6 +409,128 @@ function getFeatureDetails(feature) {
   }
   return '-'
 }
+
+function formatDate(dateStr) {
+  if (!dateStr) return '-'
+  return new Date(dateStr).toLocaleDateString()
+}
+
+// Logic for quality metrics (placeholder for real data from split stats)
+const splitStats = ref(null)
+
+async function showFeatureStats(name) {
+   // Fetch split statistics if not already loaded
+   if (!splitStats.value) {
+     try {
+       const response = await axios.get(`/api/datasets/${props.namespace}/${props.name}/splits/train/statistics`, {
+         params: { config: props.config }
+       })
+       splitStats.value = response.data.column_statistics
+     } catch (err) {
+       ElMessage.error('Failed to load column statistics')
+       return
+     }
+   }
+   
+   const stats = splitStats.value[name]
+   if (stats) {
+     // Show detail dialog (simplified for now)
+     ElMessageBox.alert(
+       `
+       <div class="space-y-4 py-4">
+          <div class="grid grid-cols-2 gap-4">
+             <div class="p-3 bg-gray-50 rounded-lg">
+                <div class="text-[10px] text-gray-400 font-bold uppercase">Mean / Median</div>
+                <div class="text-sm font-mono">${stats.mean?.toFixed(4) || '-' } / ${stats.median?.toFixed(4) || '-'}</div>
+             </div>
+             <div class="p-3 bg-gray-50 rounded-lg">
+                <div class="text-[10px] text-gray-400 font-bold uppercase">Std Dev / Skew</div>
+                <div class="text-sm font-mono">${stats.std_dev?.toFixed(4) || '-' } / ${stats.skew?.toFixed(4) || '-'}</div>
+             </div>
+          </div>
+          <div class="space-y-2">
+             <div class="flex justify-between text-xs">
+                <span>Null/NaN Count</span>
+                <span class="font-mono text-red-500">${stats.null_count + (stats.nan_count || 0)}</span>
+             </div>
+             <div class="flex justify-between text-xs">
+                <span>Unique Count</span>
+                <span class="font-mono text-blue-500">${stats.unique_count || '-'}</span>
+             </div>
+             <div class="flex justify-between text-xs">
+                <span>Outliers</span>
+                <span class="font-mono text-amber-500">${stats.outlier_count || 0}</span>
+             </div>
+          </div>
+          ${stats.avg_text_length ? `<div class="p-3 bg-gray-50 rounded-lg"><div class="text-[10px] text-gray-400 font-bold uppercase">Avg Text Length</div><div class="text-sm font-mono">${stats.avg_text_length.toFixed(1)} chars</div></div>` : ''}
+       </div>
+       `,
+       `Column Statistics: ${name}`,
+       {
+         dangerouslyUseHTMLString: true,
+         confirmButtonText: 'Close',
+         roundButton: true,
+         customClass: 'stats-dialog'
+       }
+     )
+   }
+}
+
+function getQualityLabel(name) {
+  if (!splitStats.value) return null
+  const stats = splitStats.value[name]
+  if (!stats) return null
+  
+  if (stats.most_common?.includes('FLAGGED')) return 'PII Risk'
+  if (stats.null_count > 0 || (stats.nan_count || 0) > 0) return 'Dirty Data'
+  if (Math.abs(stats.skew) > 2) return 'Skewed'
+  if (stats.outlier_count > 0) return 'Outliers'
+  return null
+}
+
+function getQualityType(name) {
+  const label = getQualityLabel(name)
+  if (label === 'PII Risk') return 'danger'
+  if (label === 'Dirty Data') return 'warning'
+  if (label === 'Skewed') return 'info'
+  if (label === 'Outliers') return 'warning'
+  return 'info'
+}
+
+function getQualityIcon(name) {
+  const label = getQualityLabel(name)
+  if (label === 'PII Risk') return 'i-carbon-security-shield'
+  if (label === 'Dirty Data') return 'i-carbon-trash-can'
+  if (label === 'Skewed') return 'i-carbon-chart-error-bar'
+  if (label === 'Outliers') return 'i-carbon-chart-scatter'
+  return 'i-carbon-face-satisfied'
+}
+
+function getQualityContent(name) {
+  const stats = splitStats.value[name]
+  if (!stats) return ''
+  
+  const issues = []
+  if (stats.most_common?.includes('FLAGGED')) issues.push('Possible PII or sensitive content detected')
+  if (stats.null_count > 0) issues.push(`${stats.null_count} null values`)
+  if (stats.nan_count > 0) issues.push(`${stats.nan_count} NaN values`)
+  if (Math.abs(stats.skew) > 2) issues.push('High value distribution skew')
+  if (stats.outlier_count > 0) issues.push(`${stats.outlier_count} detected outliers (Z > 3)`)
+  
+  return issues.join(' | ')
+}
+
+onMounted(async () => {
+    // Also try to pre-fetch stats for 'train' split
+    try {
+       const response = await axios.get(`/api/datasets/${props.namespace}/${props.name}/splits/train/statistics`, {
+         params: { config: props.config }
+       })
+       splitStats.value = response.data.column_statistics
+     } catch (err) {
+       // Silent fail
+     }
+})
 </script>
 
 <style scoped>

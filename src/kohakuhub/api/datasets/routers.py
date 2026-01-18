@@ -4,9 +4,9 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from starlette.concurrency import run_in_threadpool
 
 from kohakuhub.api.datasets import viewer, metadata
-from kohakuhub.auth.dependencies import get_optional_user
-from kohakuhub.auth.permissions import check_repo_read_permission
-from kohakuhub.db import User, Repository
+from kohakuhub.auth.dependencies import get_optional_user, get_current_user
+from kohakuhub.auth.permissions import check_repo_read_permission, check_repo_write_permission
+from kohakuhub.db import User, Repository, DatasetAccessRequest, DatasetLineage
 from kohakuhub.datasetviewer.rate_limit import check_rate_limit_dependency
 from kohakuhub.config import cfg
 from .models import (
@@ -14,8 +14,14 @@ from .models import (
     DatasetRowResponse, 
     DatasetInfoResponse, 
     SplitStatisticsResponse,
-    DatasetStatistics
+    DatasetStatistics,
+    AccessRequestCreate,
+    AccessRequestResponse,
+    DatasetLineageCreate,
+    LineageResponse
 )
+import json
+from datetime import datetime
 
 router = APIRouter(prefix="/datasets", tags=["Dataset Viewer"])
 
@@ -187,4 +193,197 @@ async def get_split_stats(
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to calculate split statistics: {str(e)}")
+
+
+@router.get("/{namespace}/{repo}/request-access", response_model=Dict[str, Any])
+async def get_access_request_status(
+    namespace: str,
+    repo: str,
+    user: User = Depends(get_current_user),
+):
+    """Get the status of the current user's access request."""
+    # Note: We don't use _get_repo_with_read_access here because 
+    # that would fail if the user doesn't have access yet.
+    repo_row = Repository.get_or_none(Repository.namespace == namespace, Repository.name == repo)
+    if not repo_row:
+        raise HTTPException(status_code=404, detail="Repository not found")
+    
+    if not repo_row.gated:
+        return {"status": "none", "message": "Dataset is not gated"}
+
+    request = DatasetAccessRequest.get_or_none(
+        DatasetAccessRequest.user == user,
+        DatasetAccessRequest.repository == repo_row
+    )
+    
+    if not request:
+        return {"status": "none"}
+        
+    return {
+        "id": request.id,
+        "status": request.status,
+        "reason": request.reason,
+        "denial_reason": request.denial_reason,
+        "created_at": request.created_at,
+        "updated_at": request.updated_at
+    }
+
+@router.post("/{namespace}/{repo}/request-access", response_model=AccessRequestResponse)
+async def request_dataset_access(
+    namespace: str,
+    repo: str,
+    req: AccessRequestCreate,
+    user: User = Depends(get_current_user),
+):
+    """Request access to a gated dataset."""
+    db_repo = Repository.get_or_none(
+        (Repository.namespace == namespace) & (Repository.name == repo)
+    )
+    if not db_repo:
+        raise HTTPException(status_code=404, detail="Dataset not found")
+    
+    if not db_repo.gated:
+        raise HTTPException(status_code=400, detail="This dataset is not gated")
+
+    # Check if already has access or pending request
+    existing = DatasetAccessRequest.get_or_none(
+        (DatasetAccessRequest.user == user) & (DatasetAccessRequest.repository == db_repo)
+    )
+    if existing:
+        return AccessRequestResponse(
+            id=existing.id,
+            user=user.username,
+            status=existing.status,
+            reason=existing.reason,
+            denial_reason=existing.denial_reason,
+            created_at=existing.created_at,
+            updated_at=existing.updated_at,
+            approved_at=existing.approved_at
+        )
+
+    new_req = DatasetAccessRequest.create(
+        user=user,
+        repository=db_repo,
+        reason=req.reason
+    )
+    
+    return AccessRequestResponse(
+        id=new_req.id,
+        user=user.username,
+        status=new_req.status,
+        reason=new_req.reason,
+        created_at=new_req.created_at,
+        updated_at=new_req.updated_at
+    )
+
+
+@router.get("/{namespace}/{repo}/access-requests", response_model=List[AccessRequestResponse])
+async def list_dataset_access_requests(
+    namespace: str,
+    repo: str,
+    user: User = Depends(get_current_user),
+):
+    """List access requests for a dataset (Owner/Admin only)."""
+    db_repo = await _get_repo_with_read_access(namespace, repo, user)
+    
+    # Check write permission to ensure only owners/admins can see requests
+    check_repo_write_permission(db_repo, user)
+
+    requests = DatasetAccessRequest.select().where(DatasetAccessRequest.repository == db_repo)
+    return [
+        AccessRequestResponse(
+            id=r.id,
+            user=r.user.username,
+            status=r.status,
+            reason=r.reason,
+            denial_reason=r.denial_reason,
+            created_at=r.created_at,
+            updated_at=r.updated_at,
+            approved_at=r.approved_at
+        ) for r in requests
+    ]
+
+
+@router.post("/{namespace}/{repo}/access-requests/{request_id}/approve")
+async def approve_dataset_access(
+    namespace: str,
+    repo: str,
+    request_id: int,
+    user: User = Depends(get_current_user),
+):
+    """Approve an access request (Owner/Admin only)."""
+    db_repo = Repository.get_or_none(
+        (Repository.namespace == namespace) & (Repository.name == repo)
+    )
+    check_repo_write_permission(db_repo, user)
+    
+    req = DatasetAccessRequest.get_or_none(DatasetAccessRequest.id == request_id)
+    if not req or req.repository_id != db_repo.id:
+        raise HTTPException(status_code=404, detail="Request not found")
+    
+    req.status = "approved"
+    req.approved_at = datetime.now()
+    req.approved_by = user
+    req.updated_at = datetime.now()
+    req.save()
+    
+    return {"message": "Access request approved"}
+
+
+@router.post("/{namespace}/{repo}/lineage", response_model=LineageResponse)
+async def add_dataset_lineage(
+    namespace: str,
+    repo: str,
+    lineage_req: DatasetLineageCreate,
+    user: User = Depends(get_current_user),
+):
+    """Record data lineage for a dataset revision (Owner/Admin only)."""
+    db_repo = Repository.get_or_none(
+        (Repository.namespace == namespace) & (Repository.name == repo)
+    )
+    check_repo_write_permission(db_repo, user)
+    
+    lineage = DatasetLineage.create(
+        repository=db_repo,
+        revision=lineage_req.revision,
+        source_repos=json.dumps(lineage_req.source_repos),
+        script_path=lineage_req.script_path,
+        script_hash=lineage_req.script_hash,
+        mapping_function_hash=lineage_req.mapping_function_hash,
+        config=json.dumps(lineage_req.config) if lineage_req.config else None
+    )
+    
+    return LineageResponse(
+        revision=lineage.revision,
+        source_repos=json.loads(lineage.source_repos),
+        script_path=lineage.script_path,
+        script_hash=lineage.script_hash,
+        mapping_function_hash=lineage.mapping_function_hash,
+        config=json.loads(lineage.config) if lineage.config else None,
+        created_at=lineage.created_at
+    )
+
+
+@router.get("/{namespace}/{repo}/lineage", response_model=List[LineageResponse])
+async def get_dataset_lineage(
+    namespace: str,
+    repo: str,
+    user: Optional[User] = Depends(get_optional_user),
+):
+    """Get data lineage history for a dataset."""
+    db_repo = await _get_repo_with_read_access(namespace, repo, user)
+    
+    lineages = DatasetLineage.select().where(DatasetLineage.repository == db_repo).order_by(DatasetLineage.created_at.desc())
+    
+    return [
+        LineageResponse(
+            revision=l.revision,
+            source_repos=json.loads(l.source_repos),
+            script_path=l.script_path,
+            script_hash=l.script_hash,
+            mapping_function_hash=l.mapping_function_hash,
+            config=json.loads(l.config) if l.config else None,
+            created_at=l.created_at
+        ) for l in lineages
+    ]
 

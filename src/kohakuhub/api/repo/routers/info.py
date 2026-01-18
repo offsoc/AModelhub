@@ -240,7 +240,8 @@ async def get_repo_info(
         "createdAt": created_at,
         "private": repo_row.private,
         "disabled": False,
-        "gated": False,
+        "gated": repo_row.gated,
+        "gated_message": repo_row.gated_message,
         "downloads": repo_row.downloads,
         "likes": repo_row.likes_count,
         "tags": [],
@@ -383,7 +384,7 @@ async def _list_repos_internal(
                 "createdAt": safe_strftime(r.created_at, DATETIME_FORMAT_ISO),
                 "downloads": r.downloads,
                 "likes": r.likes_count,
-                "gated": False,
+                "gated": r.gated,
                 "tags": [],
             }
         )
@@ -553,7 +554,7 @@ async def list_user_repos(
                     "createdAt": safe_strftime(r.created_at, DATETIME_FORMAT_ISO),
                     "downloads": r.downloads,
                     "likes": r.likes_count,
-                    "gated": False,
+                    "gated": r.gated,
                     "tags": [],
                 }
             )

@@ -296,7 +296,8 @@ class UpdateRepoSettingsPayload(BaseModel):
     """Payload for repository settings update."""
 
     private: Optional[bool] = None
-    gated: Optional[str] = None  # "auto", "manual", or False/None
+    gated: Optional[bool] = None
+    gated_message: Optional[str] = None
     lfs_threshold_bytes: Optional[int] = None  # NULL = use server default
     lfs_keep_versions: Optional[int] = None  # NULL = use server default
     lfs_suffix_rules: Optional[list[str]] = None  # NULL = no suffix rules
@@ -414,12 +415,16 @@ async def update_repo_settings(
         # Update repository visibility
         update_fields["private"] = payload.private
 
+    if payload.gated is not None:
+        update_fields["gated"] = payload.gated
+
+    if payload.gated_message is not None:
+        update_fields["gated_message"] = payload.gated_message
+
     # Apply all updates if there are any
     if update_fields:
         update_repository(repo_row, **update_fields)
 
-    # Note: gated functionality not yet implemented in database schema
-    # Would require adding a 'gated' field to Repository model
 
     return {"success": True, "message": "Repository settings updated successfully"}
 

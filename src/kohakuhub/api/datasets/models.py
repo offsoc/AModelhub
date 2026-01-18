@@ -1,3 +1,4 @@
+from datetime import datetime
 from typing import Any, Dict, List, Optional
 from pydantic import BaseModel, Field
 
@@ -31,16 +32,25 @@ class DatasetMetadata(BaseModel):
     description: Optional[str] = None
     homepage: Optional[str] = None
     license: Optional[str] = None
+    compliance_status: Optional[str] = "pending" # pending, clean, flagged
+    compliance_report: Optional[Dict[str, Any]] = None
+    lineage: Optional[List[Dict[str, Any]]] = None
     error: Optional[str] = None
 
 class ColumnStatistics(BaseModel):
     count: int
     null_count: int
+    nan_count: Optional[int] = 0
     min: Optional[float] = None
     max: Optional[float] = None
     mean: Optional[float] = None
+    median: Optional[float] = None
+    std_dev: Optional[float] = None
     unique_count: Optional[int] = None
     most_common: Optional[Any] = None
+    skew: Optional[float] = None
+    outlier_count: Optional[int] = None
+    avg_text_length: Optional[float] = None
 
 class SplitStatisticsResponse(BaseModel):
     split: str
@@ -58,3 +68,37 @@ class DatasetRowResponse(BaseModel):
 class DatasetInfoResponse(BaseModel):
     configs: List[str]
     info: Dict[str, Any]  # Complex nested info from builder
+
+
+class AccessRequestCreate(BaseModel):
+    reason: str
+
+
+class AccessRequestResponse(BaseModel):
+    id: int
+    user: str
+    status: str
+    reason: str
+    denial_reason: Optional[str] = None
+    created_at: datetime
+    updated_at: datetime
+    approved_at: Optional[datetime] = None
+
+
+class DatasetLineageCreate(BaseModel):
+    revision: str
+    source_repos: List[str]
+    script_path: str
+    script_hash: str
+    mapping_function_hash: Optional[str] = None
+    config: Optional[Dict[str, Any]] = None
+
+
+class LineageResponse(BaseModel):
+    revision: str
+    source_repos: List[str]
+    script_path: str
+    script_hash: str
+    mapping_function_hash: Optional[str] = None
+    config: Optional[Dict[str, Any]] = None
+    created_at: datetime

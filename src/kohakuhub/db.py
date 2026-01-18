@@ -178,6 +178,10 @@ class Repository(BaseModel):
         null=True
     )  # JSON list of suffixes like [".safetensors", ".bin"], NULL = no suffix rules
 
+    # Gated dataset support
+    gated = BooleanField(default=False, index=True)
+    gated_message = TextField(null=True)  # Instructions or reason for gating
+
     # Social metrics (denormalized counters for fast queries)
     downloads = IntegerField(default=0)  # Total download sessions (not file count)
     likes_count = IntegerField(default=0)  # Total likes
@@ -517,6 +521,47 @@ class ConfirmationToken(BaseModel):
         indexes = ((("action_type", "expires_at"), False),)  # For cleanup queries
 
 
+class DatasetAccessRequest(BaseModel):
+    """Access requests for gated datasets."""
+
+    id = AutoField()
+    user = ForeignKeyField(User, backref="access_requests", on_delete="CASCADE", index=True)
+    repository = ForeignKeyField(
+        Repository, backref="access_requests", on_delete="CASCADE", index=True
+    )
+    status = CharField(default="pending")  # pending, approved, denied
+    reason = TextField(null=True)  # User's reason for request
+    denial_reason = TextField(null=True)  # Admin's reason for denial
+    created_at = DateTimeField(default=partial(datetime.now, tz=timezone.utc))
+    updated_at = DateTimeField(default=partial(datetime.now, tz=timezone.utc))
+    approved_at = DateTimeField(null=True)
+    approved_by = ForeignKeyField(
+        User, backref="approved_requests", on_delete=DB_ON_DELETE_SET_NULL, null=True
+    )
+
+    class Meta:
+        indexes = ((("user", "repository"), True),)  # Can't request twice
+
+
+class DatasetLineage(BaseModel):
+    """Track data lineage for reproducibility."""
+
+    id = AutoField()
+    repository = ForeignKeyField(
+        Repository, backref="lineages", on_delete="CASCADE", index=True
+    )
+    revision = CharField(index=True)  # Git revision (commit SHA)
+    source_repos = TextField()  # JSON list of [namespace/repo@revision, ...]
+    script_path = CharField()  # Path to processing script in repo
+    script_hash = CharField()  # Content hash of the processing script
+    mapping_function_hash = CharField(null=True)  # Specific hash for mapping function if applicable
+    config = TextField(null=True)  # JSON configuration used for processing
+    created_at = DateTimeField(default=partial(datetime.now, tz=timezone.utc))
+
+    class Meta:
+        indexes = ((("repository", "revision"), True),)
+
+
 def init_db():
     db.connect(reuse_if_open=True)
     db.create_tables(
@@ -539,6 +584,8 @@ def init_db():
             DailyRepoStats,
             FallbackSource,
             ConfirmationToken,
+            DatasetAccessRequest,
+            DatasetLineage,
         ],
         safe=True,
     )

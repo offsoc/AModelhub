@@ -84,7 +84,8 @@ def get_dataset_rows(
     limit: int = 100, 
     ref: str = "main", 
     token: Optional[str] = None,
-    where: Optional[str] = None
+    where: Optional[str] = None,
+    mask_columns: Optional[List[str]] = None
 ) -> DatasetRowResponse:
     """
     Stream rows from the dataset.
@@ -126,10 +127,13 @@ def get_dataset_rows(
             if len(rows) >= limit:
                 break
             
-            serialized_sample = {
-                k: _serialize_value(v, features.get(k) if features else None) 
-                for k, v in sample.items()
-            }
+            serialized_sample = {}
+            for k, v in sample.items():
+                if mask_columns and k in mask_columns:
+                    serialized_sample[k] = "[MASKED]"
+                else:
+                    serialized_sample[k] = _serialize_value(v, features.get(k) if features else None) 
+            
             rows.append(serialized_sample)
         
         return DatasetRowResponse(
@@ -153,6 +157,11 @@ def _serialize_value(value: Any, feature: Any = None) -> Any:
     if value is None:
         return None
 
+    # Handle NaN / Inf for JSON safety
+    if isinstance(value, float):
+        if np.isnan(value) or np.isinf(value):
+            return None
+    
     # Handle ClassLabel
     if feature and isinstance(feature, datasets.ClassLabel):
         try:

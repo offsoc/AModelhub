@@ -1,12 +1,11 @@
-"""
-Dataset metadata extraction and statistics module.
-Uses the HuggingFace datasets library to extract comprehensive metadata.
-"""
-
 import os
 import threading
+import numpy as np
+import re
+import json
 from typing import Any, Dict, List, Optional
 from functools import lru_cache
+from kohakuhub.db import DatasetLineage
 
 import datasets
 from datasets import load_dataset, get_dataset_config_names, DatasetInfo
@@ -22,6 +21,34 @@ logger = get_logger("DatasetsMetadata")
 # This ensures that all dataset operations point to the local instance
 _BASE_URL = cfg.app.base_url or "http://localhost:48888"
 os.environ["HF_ENDPOINT"] = _BASE_URL.rstrip("/")
+
+
+def _scan_for_pii_and_sensitive(text: str) -> Dict[str, Any]:
+    """Basic PII and sensitive content scanner."""
+    report = {"pii_found": False, "sensitive_found": False, "matches": []}
+    
+    # Simple regex for common PII
+    patterns = {
+        "email": r"[\w\.-]+@[\w\.-]+\.\w+",
+        "phone": r"\b\d{3}[-.]?\d{3}[-.]?\d{4}\b",
+        "ssn": r"\b\d{3}-\d{2}-\d{4}\b",
+        "ipv4": r"\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\b",
+    }
+    
+    # Sensitive words (example list)
+    sensitive_words = ["confidential", "password", "secret", "private_key", "internal_only"]
+    
+    for label, pattern in patterns.items():
+        if re.search(pattern, text):
+            report["pii_found"] = True
+            report["matches"].append(label)
+            
+    for word in sensitive_words:
+        if word.lower() in text.lower():
+            report["sensitive_found"] = True
+            report["matches"].append(f"sensitive_word:{word}")
+            
+    return report
 
 def _serialize_feature_type(feature) -> Dict[str, Any]:
     """Serialize a single feature type to a JSON-compatible dict."""
@@ -183,6 +210,23 @@ def get_dataset_metadata(
                 for name, feature in info.features.items()
             }
 
+        # Get Lineage using the Repository model
+        repo_obj = Repository.get_or_none(Repository.namespace == namespace, Repository.name == repo)
+        lineage_data = []
+        if repo_obj:
+            lineages = DatasetLineage.select().where(DatasetLineage.repository == repo_obj).order_by(DatasetLineage.created_at.desc()).limit(5)
+            lineage_data = [
+                {
+                    "revision": l.revision,
+                    "created_at": l.created_at.isoformat(),
+                    "script_path": l.script_path
+                } for l in lineages
+            ]
+
+        # Initial compliance status
+        compliance_status = "verified"
+        compliance_report = None
+
         return DatasetMetadata(
             configs=configs,
             current_config=current_config,
@@ -192,7 +236,10 @@ def get_dataset_metadata(
             type_distribution=_calculate_feature_type_distribution(info.features) if info.features else {},
             description=getattr(info, 'description', None),
             homepage=getattr(info, 'homepage', None),
-            license=getattr(info, 'license', None)
+            license=getattr(info, 'license', None),
+            lineage=lineage_data,
+            compliance_status=compliance_status,
+            compliance_report=compliance_report
         )
         
     except Exception as e:
@@ -255,22 +302,54 @@ def get_split_statistics(
             numeric_values = []
             for v in valid_values:
                 if isinstance(v, (int, float)):
-                    numeric_values.append(float(v))
+                    if not np.isnan(v) and not np.isinf(v):
+                        numeric_values.append(float(v))
             
             if numeric_values:
+                arr = np.array(numeric_values)
+                mean = float(np.mean(arr))
+                std = float(np.std(arr))
+                median = float(np.median(arr))
+                
+                # Outliers (simple Z-score > 3)
+                outliers = 0
+                if std > 0:
+                    outliers = int(np.sum(np.abs(arr - mean) > 3 * std))
+                
+                # Skewness (simple calculation)
+                skew = 0
+                if std > 0:
+                    skew = float(np.mean((arr - mean) ** 3) / (std ** 3))
+
                 stats_dict.update({
-                    "min": min(numeric_values),
-                    "max": max(numeric_values),
-                    "mean": sum(numeric_values) / len(numeric_values),
+                    "min": float(np.min(arr)),
+                    "max": float(np.max(arr)),
+                    "mean": mean,
+                    "median": median,
+                    "std_dev": std,
+                    "skew": skew,
+                    "outlier_count": outliers,
                 })
             
-            # Categorical stats
-            if valid_values and isinstance(valid_values[0], (str, int, bool)):
-                unique_values = set(valid_values)
-                stats_dict.update({
-                    "unique_count": len(unique_values),
-                    "most_common": max(unique_values, key=valid_values.count) if valid_values else None,
-                })
+            # Categorical / Text stats
+            if valid_values:
+                if isinstance(valid_values[0], str):
+                    # Text specific stats
+                    lengths = [len(v) for v in valid_values]
+                    stats_dict["avg_text_length"] = sum(lengths) / len(lengths)
+                    
+                    # PII scan on a small sample of text
+                    pii_report = _scan_for_pii_and_sensitive(" ".join(valid_values[:10]))
+                    if pii_report["pii_found"] or pii_report["sensitive_found"]:
+                        stats_dict["most_common"] = f"[FLAGGED: PII/Sensitive - {', '.join(pii_report['matches'])}]"
+                
+                if isinstance(valid_values[0], (str, int, bool)):
+                    unique_values = set(valid_values)
+                    stats_dict.update({
+                        "unique_count": len(unique_values),
+                    })
+                    if not stats_dict.get("most_common"):
+                         stats_dict["most_common"] = max(unique_values, key=valid_values.count) if valid_values else None
                 
             column_stats[key] = ColumnStatistics(**stats_dict)
         

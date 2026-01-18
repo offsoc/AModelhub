@@ -4,7 +4,7 @@ from typing import Optional
 
 from fastapi import HTTPException
 
-from kohakuhub.db import Repository, User
+from kohakuhub.db import Repository, User, DatasetAccessRequest
 from kohakuhub.constants import ERROR_USER_AUTH_REQUIRED
 from kohakuhub.db_operations import get_organization, get_user_organization
 
@@ -65,12 +65,30 @@ def check_namespace_permission(
     return True
 
 
+def check_gated_access(repo: Repository, user: Optional[User]) -> bool:
+    """Check if user has an approved request for a gated repository."""
+    if not repo.gated:
+        return True
+    
+    if not user:
+        return False
+        
+    # Check for approved request
+    request = DatasetAccessRequest.get_or_none(
+        (DatasetAccessRequest.user == user) & 
+        (DatasetAccessRequest.repository == repo) & 
+        (DatasetAccessRequest.status == "approved")
+    )
+    return request is not None
+
+
 def check_repo_read_permission(
     repo: Repository, user: Optional[User] = None, is_admin: bool = False
 ) -> bool:
     """Check if user can read a repository.
 
-    Public repos: anyone can read
+    Public repos: anyone can read (unless gated)
+    Gated repos: require an approved access request for non-owners/members
     Private repos: only creator or org members can read
 
     Args:
@@ -88,7 +106,32 @@ def check_repo_read_permission(
     if is_admin:
         return True
 
-    # Public repos are accessible to everyone
+    # 1. Check if user is owner or org member (bypass gating)
+    is_owner_or_member = False
+    if user:
+        if repo.namespace == user.username:
+            is_owner_or_member = True
+        else:
+            org = get_organization(repo.namespace)
+            if org:
+                membership = get_user_organization(user, org)
+                if membership:
+                    is_owner_or_member = True
+
+    # 2. Handle gating for non-owners/members
+    if repo.gated and not is_owner_or_member:
+        if not user:
+            raise HTTPException(
+                401, 
+                detail=f"This repository is gated. Please log in to request access. {repo.gated_message or ''}"
+            )
+        if not check_gated_access(repo, user):
+            raise HTTPException(
+                403, 
+                detail=f"Access to this gated repository requires approval. {repo.gated_message or ''}"
+            )
+
+    # 3. Handle privacy
     if not repo.private:
         return True
 
@@ -98,16 +141,8 @@ def check_repo_read_permission(
             401, detail="Authentication required to access private repository"
         )
 
-    # Check if user is the creator (namespace matches username)
-    if repo.namespace == user.username:
+    if is_owner_or_member:
         return True
-
-    # Check if namespace is an organization and user is a member
-    org = get_organization(repo.namespace)
-    if org:
-        membership = get_user_organization(user, org)
-        if membership:
-            return True
 
     raise HTTPException(
         403, detail=f"You don't have access to private repository '{repo.full_id}'"

@@ -18,13 +18,49 @@
       </el-icon>
     </div>
 
-    <div v-else-if="error" class="text-center py-20">
-      <div class="i-carbon-warning text-6xl text-red-500 mb-4" />
-      <h2 class="text-2xl font-bold mb-2">Repository Not Found</h2>
-      <p class="text-gray-600 mb-4">{{ error }}</p>
-      <el-button @click="$router.back()">Go Back</el-button>
+    <!-- Error or Gated State -->
+    <div v-else-if="error || (isGated && gatedStatus !== 'approved')" class="grid grid-cols-1 lg:grid-cols-12 gap-6">
+      <div class="col-span-12 lg:col-span-9">
+        <!-- Gated Banner -->
+        <div v-if="isGated && activeTab === 'card'" class="mb-6 p-8 bg-amber-50 dark:bg-amber-900/10 border border-amber-200 dark:border-amber-800 rounded-3xl shadow-sm text-center">
+           <div class="i-carbon-security-shield text-6xl text-amber-500 mb-4 mx-auto" />
+           <h2 class="text-2xl font-black text-gray-900 dark:text-gray-100 mb-2">Access to this dataset is gated</h2>
+           <p class="text-gray-600 dark:text-gray-400 mb-6 max-w-2xl mx-auto">{{ gatedMessage || 'The author has restricted access to this repository. You must request access to view its contents.' }}</p>
+           
+           <div v-if="!authStore.isAuthenticated">
+              <p class="text-sm font-bold text-amber-700 dark:text-amber-500 mb-4">You must be logged in to request access.</p>
+              <el-button type="primary" round class="px-8 shadow-lg shadow-blue-500/20" @click="navigateToLogin">Login to Continue</el-button>
+           </div>
+           <div v-else-if="gatedStatus === 'approved'">
+              <el-tag type="success" effect="dark" class="px-6 py-2">Access Approved</el-tag>
+              <p class="text-xs text-gray-500 mt-2">Try refreshing the page if you still can't see the content.</p>
+           </div>
+           <div v-else-if="gatedStatus === 'pending'">
+              <el-tag type="warning" effect="dark" class="px-6 py-2">Access Pending Approval</el-tag>
+              <p class="text-xs text-gray-500 mt-2">The repository owner will review your request soon.</p>
+           </div>
+           <div v-else-if="gatedStatus === 'denied'">
+              <el-tag type="danger" effect="dark" class="px-6 py-2">Access Request Denied</el-tag>
+              <p class="text-xs text-red-500 mt-2">Please contact the owner if you believe this is an error.</p>
+           </div>
+           <div v-else>
+             <el-button type="warning" round class="px-8 shadow-lg shadow-amber-500/20" @click="showAccessModal = true">
+               <div class="i-carbon-request-quote mr-2" /> Request Access
+             </el-button>
+           </div>
+        </div>
+
+        <!-- Existing Error State -->
+        <div v-else-if="error && !isGated" class="p-12 text-center card bg-red-50/50 dark:bg-red-900/10 border-red-100 dark:border-red-900/30">
+          <div class="i-carbon-warning-alt text-5xl text-red-500 mb-4 mx-auto" />
+          <div class="text-xl font-bold text-red-900 dark:text-red-100 mb-2">Failed to load repository</div>
+          <div class="text-sm text-red-700 dark:text-red-300 max-w-md mx-auto mb-6">{{ error }}</div>
+          <el-button type="danger" plain round @click="loadRepoInfo">Try Again</el-button>
+        </div>
+      </div>
     </div>
 
+    <!-- Main Content Area (Hidden if gated and no access) -->
     <div
       v-else
       :class="
@@ -763,8 +799,7 @@
             </p>
             <pre
               class="text-xs overflow-x-auto bg-white dark:bg-gray-800 p-2 rounded mb-2 text-gray-800 dark:text-gray-200"
-            >
-git clone {{ gitCloneUrl }}</pre
+            >git clone {{ gitCloneUrl }}</pre
             >
             <p class="text-blue-800 dark:text-blue-200 text-xs mt-2">
               This will clone the repository with all files and commit history.
@@ -821,8 +856,7 @@ git clone {{ gitCloneUrl }}</pre
             </p>
             <pre
               class="text-xs overflow-x-auto bg-white dark:bg-gray-800 p-2 rounded mb-3 text-gray-800 dark:text-gray-200"
-            >
-export HF_ENDPOINT={{ baseUrl }}</pre
+            >export HF_ENDPOINT={{ baseUrl }}</pre
             >
             <p class="text-gray-600 dark:text-gray-400 mb-1">
               Download using
@@ -832,10 +866,32 @@ export HF_ENDPOINT={{ baseUrl }}</pre
             </p>
             <pre
               class="text-xs overflow-x-auto bg-white dark:bg-gray-800 p-2 rounded text-gray-800 dark:text-gray-200"
-            >
-huggingface-cli download {{ repoInfo?.id }}</pre
+            >huggingface-cli download {{ repoInfo?.id }}</pre
             >
           </div>
+        </div>
+      </div>
+    </el-dialog>
+
+    <!-- Gated Access Modal -->
+    <el-dialog
+      v-model="showAccessModal"
+      title="Request Access"
+      width="400px"
+      round
+      custom-class="access-modal"
+    >
+      <div class="p-2 space-y-4">
+        <p class="text-xs text-gray-500">Please provide a reason why you need access to this dataset. This will be reviewed by the repository owner.</p>
+        <el-input
+          v-model="accessReason"
+          type="textarea"
+          :rows="4"
+          placeholder="I need this dataset for research on AI safety..."
+        />
+        <div class="flex justify-end gap-2">
+           <el-button @click="showAccessModal = false" round>Cancel</el-button>
+           <el-button type="warning" :loading="requestingAccess" @click="submitAccessRequest" round>Submit Request</el-button>
         </div>
       </div>
     </el-dialog>
@@ -875,7 +931,7 @@ dayjs.extend(relativeTime);
  */
 const props = defineProps({
   repoType: { type: String, required: true },
-  namespace: { type: String, required: true },
+  namespace: { type : String, required: true },
   name: { type: String, required: true },
   branch: { type: String, default: "main" },
   currentPath: { type: String, default: "" },
@@ -888,6 +944,12 @@ const authStore = useAuthStore();
 // State
 const loading = ref(true);
 const error = ref(null);
+const isGated = ref(false);
+const gatedMessage = ref("");
+const gatedStatus = ref(null); // 'none', 'pending', 'approved', 'denied'
+const requestingAccess = ref(false);
+const accessReason = ref("");
+const showAccessModal = ref(false);
 const repoInfo = ref(null);
 const currentBranch = ref(props.branch);
 const fileTree = ref([]);
@@ -907,6 +969,7 @@ const likingInProgress = ref(false);
 const deletingFolder = ref(false);
 const datasetStats = ref(null);
 const datasetStatsLoading = ref(false);
+const statusBanner = ref(null); // Added for the new banner structure
 
 const baseUrl = window.location.origin;
 
@@ -1066,14 +1129,6 @@ function formatNumber(num) {
   return num.toLocaleString();
 }
 
-function formatSize(bytes) {
-  if (!bytes || bytes === 0) return "0 B";
-  const k = 1024;
-  const sizes = ["B", "KB", "MB", "GB", "TB"];
-  const i = Math.floor(Math.log(bytes) / Math.log(k));
-  return Math.round((bytes / Math.pow(k, i)) * 100) / 100 + " " + sizes[i];
-}
-
 function navigateToTab(tab) {
   switch (tab) {
     case "files":
@@ -1127,6 +1182,10 @@ function handleBranchChange() {
   }
 }
 
+function navigateToLogin() {
+  router.push(`/login?redirect=${encodeURIComponent(router.currentRoute.value.fullPath)}`);
+}
+
 async function checkIfNamespaceIsOrg() {
   try {
     // Check namespace type (works with fallback sources)
@@ -1143,6 +1202,9 @@ async function checkIfNamespaceIsOrg() {
 async function loadRepoInfo() {
   loading.value = true;
   error.value = null;
+  isGated.value = false;
+  gatedMessage.value = "";
+  gatedStatus.value = null;
 
   try {
     const { data } = await repoAPI.getInfo(
@@ -1170,7 +1232,16 @@ async function loadRepoInfo() {
       }
     }
   } catch (err) {
-    error.value = err.response?.data?.detail || "Failed to load repository";
+    const detail = err.response?.data?.detail || "";
+    if (detail.includes("gated") || err.response?.status === 403) {
+       isGated.value = true;
+       gatedMessage.value = detail;
+       // Attempt to check if there's a pending request if logged in
+       if (authStore.isAuthenticated) {
+          checkAccessRequestStatus();
+       }
+    }
+    error.value = detail || "Failed to load repository";
     console.error("Failed to load repo info:", err);
   } finally {
     loading.value = false;
@@ -1217,6 +1288,39 @@ async function toggleLike() {
   } finally {
     likingInProgress.value = false;
   }
+}
+
+async function checkAccessRequestStatus() {
+   try {
+     const { data } = await axios.get(`/api/datasets/${props.namespace}/${props.name}/request-access`, {
+        // This is a bit of a hack, we can just try to post empty and see what we get
+        // or add a dedicated GET endpoint. For now, let's assume if it fails with 403 it's gated.
+     });
+   } catch (err) {
+      if (err.response?.data?.status) {
+         gatedStatus.value = err.response.data.status;
+      }
+   }
+}
+
+async function submitAccessRequest() {
+   if (!accessReason.value) {
+      ElMessage.warning("Please provide a reason for access");
+      return;
+   }
+   requestingAccess.value = true;
+   try {
+      const { data } = await axios.post(`/api/datasets/${props.namespace}/${props.name}/request-access`, {
+         reason: accessReason.value
+      });
+      gatedStatus.value = data.status;
+      ElMessage.success("Access request submitted successfully");
+      showAccessModal.value = false;
+   } catch (err) {
+      ElMessage.error(err.response?.data?.detail || "Failed to submit request");
+   } finally {
+      requestingAccess.value = false;
+   }
 }
 
 async function loadFileTree() {

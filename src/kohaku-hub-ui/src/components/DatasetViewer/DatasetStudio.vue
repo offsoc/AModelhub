@@ -39,6 +39,8 @@ const showSchema = ref(false);
 const showStats = ref(false);
 const columnStats = ref({});
 const loadingStats = ref(false);
+const maskColumns = ref([]);
+const qualityAlerts = ref({}); // colName -> list of issues
 
 // Fetch dataset info (configs/splits)
 async function fetchInfo() {
@@ -78,7 +80,8 @@ async function fetchRows() {
           offset: offset.value,
           limit: limit.value,
           ref: props.branch,
-          where: whereQuery.value || undefined
+          where: whereQuery.value || undefined,
+          mask_columns: maskColumns.value.length > 0 ? maskColumns.value.join(",") : undefined
         }
       }
     );
@@ -355,10 +358,21 @@ function copySchema() {
               <div v-for="(stats, colName) in columnStats" :key="colName" class="stats-card group">
                 <div class="flex items-center gap-2 mb-2 p-1">
                   <div :class="[getColumnTypeIcon(stats.type), getColumnTypeColor(stats.type)]" class="text-lg group-hover:scale-110 transition-transform" />
-                  <span class="font-bold text-xs truncate text-gray-800 dark:text-gray-100" :title="colName">{{ colName }}</span>
+                  <div class="flex items-center gap-2">
+                  <span class="text-xs font-black uppercase text-gray-400 tracking-widest">{{ colName }}</span>
+                  <el-tag v-if="maskColumns.includes(colName)" size="small" type="danger" effect="dark" round>Masked</el-tag>
+                </div>
                 </div>
                 
-                <div class="stats-grid bg-gray-50 dark:bg-gray-900/50 rounded-lg p-3 border border-gray-100 dark:border-gray-800">
+                <div class="space-y-4">
+                  <div class="flex justify-between items-center bg-gray-50 dark:bg-gray-900 p-2 rounded-lg border border-gray-100 dark:border-gray-800">
+                     <span class="text-[10px] text-gray-500 font-bold uppercase">Privacy</span>
+                     <el-button size="small" :type="maskColumns.includes(colName) ? 'success' : 'warning'" plain round @click="toggleMaskColumn(colName)">
+                        {{ maskColumns.includes(colName) ? 'Unmask' : 'Mask Column' }}
+                     </el-button>
+                  </div>
+
+                  <div class="stats-grid bg-gray-50 dark:bg-gray-900/50 rounded-lg p-3 border border-gray-100 dark:border-gray-800">
                   <div class="flex justify-between items-center py-1 text-[11px] border-b border-gray-200/50 dark:border-gray-800/50">
                     <span class="text-gray-500">Validity</span>
                     <el-tag size="small" :type="stats.count > rows.length * 0.9 ? 'success' : 'warning'" effect="plain">
@@ -399,7 +413,8 @@ function copySchema() {
             </div>
           </div>
         </div>
-      </transition>
+      </div>
+    </transition>
     </div>
     
     <div v-else-if="!loadingInfo && !loadingRows && currentSplit" class="text-center py-32 text-gray-500 card bg-gray-50 dark:bg-gray-800/50 border-dashed">
