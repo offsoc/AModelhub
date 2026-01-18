@@ -216,6 +216,17 @@
             <button
               :class="[
                 'px-4 py-2 font-medium transition-colors',
+                activeTab === 'community'
+                  ? 'border-b-2 border-blue-500 text-blue-600 dark:text-blue-400'
+                  : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200',
+              ]"
+              @click="navigateToTab('community')"
+            >
+              Community
+            </button>
+            <button
+              :class="[
+                'px-4 py-2 font-medium transition-colors',
                 activeTab === 'commits'
                   ? 'border-b-2 border-blue-500 text-blue-600 dark:text-blue-400'
                   : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200',
@@ -259,7 +270,43 @@
         </div>
 
         <!-- Tab Content -->
-        <div v-if="activeTab === 'card'" class="card overflow-hidden">
+        <div v-if="activeTab === 'card'">
+          <!-- Dataset Statistics Card (for datasets only) -->
+          <div v-if="repoType === 'dataset' && datasetStats && !datasetStatsLoading" class="card mb-6">
+            <h3 class="font-semibold mb-4 flex items-center gap-2">
+              <div class="i-carbon-analytics" />
+              Quick Statistics
+            </h3>
+            <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+              <div class="stat-box p-3 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg">
+                <div class="text-2xl font-bold text-blue-600 dark:text-blue-400">
+                  {{ formatNumber(datasetStats.total_rows) }}
+                </div>
+                <div class="text-xs text-blue-700 dark:text-blue-300 mt-1">Total Rows</div>
+              </div>
+              <div class="stat-box p-3 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg">
+                <div class="text-2xl font-bold text-green-600 dark:text-green-400">
+                  {{ datasetStats.num_features || 0 }}
+                </div>
+                <div class="text-xs text-green-700 dark:text-green-300 mt-1">Features</div>
+              </div>
+              <div class="stat-box p-3 bg-purple-50 dark:bg-purple-900/20 border border-purple-200 dark:border-purple-800 rounded-lg">
+                <div class="text-2xl font-bold text-purple-600 dark:text-purple-400">
+                  {{ datasetStats.num_splits || 0 }}
+                </div>
+                <div class="text-xs text-purple-700 dark:text-purple-300 mt-1">Splits</div>
+              </div>
+              <div class="stat-box p-3 bg-orange-50 dark:bg-orange-900/20 border border-orange-200 dark:border-orange-800 rounded-lg">
+                <div class="text-2xl font-bold text-orange-600 dark:text-orange-400">
+                  {{ formatSize(datasetStats.total_bytes) }}
+                </div>
+                <div class="text-xs text-orange-700 dark:text-orange-300 mt-1">Total Size</div>
+              </div>
+            </div>
+          </div>
+          
+          <!-- README Card -->
+          <div class="card overflow-hidden">
           <div class="max-w-full overflow-x-auto">
             <div v-if="readmeLoading" class="text-center py-12">
               <el-icon class="is-loading" :size="40">
@@ -294,12 +341,21 @@
               </el-button>
             </div>
           </div>
+          </div>
         </div>
 
         <!-- Metadata Tab -->
         <div v-if="activeTab === 'metadata'">
+          <!-- Dataset-specific metadata panel -->
+          <DatasetMetadataPanel
+            v-if="repoType === 'dataset'"
+            :namespace="namespace"
+            :name="name"
+          />
+          
+          <!-- General metadata panel for other repo types -->
           <DetailedMetadataPanel
-            v-if="hasDetailedMetadata"
+            v-else-if="hasDetailedMetadata"
             :metadata="readmeMetadata"
             :repo-type="repoType"
           />
@@ -479,6 +535,15 @@
               </div>
             </template>
           </div>
+        </div>
+
+        <!-- Community Tab -->
+        <div v-if="activeTab === 'community'">
+          <CommunityTab
+            :namespace="namespace"
+            :name="name"
+            :repo-type="repoType"
+          />
         </div>
 
         <div v-if="activeTab === 'commits'">
@@ -794,6 +859,8 @@ import DetailedMetadataPanel from "@/components/repo/metadata/DetailedMetadataPa
 import ReferencedDatasetsCard from "@/components/repo/metadata/ReferencedDatasetsCard.vue";
 import SidebarRelationshipsCard from "@/components/repo/metadata/SidebarRelationshipsCard.vue";
 import DatasetViewerTab from "@/components/repo/DatasetViewerTab.vue";
+import CommunityTab from "@/components/repo/CommunityTab.vue";
+import DatasetMetadataPanel from "@/components/repo/metadata/DatasetMetadataPanel.vue";
 
 dayjs.extend(relativeTime);
 
@@ -838,6 +905,8 @@ const isLiked = ref(false);
 const likesCount = ref(0);
 const likingInProgress = ref(false);
 const deletingFolder = ref(false);
+const datasetStats = ref(null);
+const datasetStatsLoading = ref(false);
 
 const baseUrl = window.location.origin;
 
@@ -990,6 +1059,19 @@ function formatLastModified(dateString) {
 function getFileName(path) {
   const parts = path.split("/");
   return parts[parts.length - 1] || path;
+}
+
+function formatNumber(num) {
+  if (num === null || num === undefined) return '0';
+  return num.toLocaleString();
+}
+
+function formatSize(bytes) {
+  if (!bytes || bytes === 0) return "0 B";
+  const k = 1024;
+  const sizes = ["B", "KB", "MB", "GB", "TB"];
+  const i = Math.floor(Math.log(bytes) / Math.log(k));
+  return Math.round((bytes / Math.pow(k, i)) * 100) / 100 + " " + sizes[i];
 }
 
 function navigateToTab(tab) {
@@ -1192,6 +1274,26 @@ async function loadReadme() {
     readmeMetadata.value = {};
   } finally {
     readmeLoading.value = false;
+  }
+}
+
+async function loadDatasetStats() {
+  if (props.repoType !== 'dataset') return;
+  
+  datasetStatsLoading.value = true;
+  try {
+    const response = await axios.get(
+      `/api/datasets/${props.namespace}/${props.name}/metadata`
+    );
+    
+    if (response.data && response.data.statistics) {
+      datasetStats.value = response.data.statistics;
+    }
+  } catch (err) {
+    console.error('Failed to load dataset statistics:', err);
+    // Silently fail - stats are optional
+  } finally {
+    datasetStatsLoading.value = false;
   }
 }
 
@@ -1459,6 +1561,11 @@ watch(
 // Lifecycle
 onMounted(async () => {
   await loadRepoInfo();
+  
+  // Load dataset statistics for datasets
+  if (props.repoType === 'dataset') {
+    loadDatasetStats(); // Don't await - load in background
+  }
 
   if (activeTab.value === "files") {
     await loadFileTree();

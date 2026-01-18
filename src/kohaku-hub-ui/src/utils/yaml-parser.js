@@ -49,10 +49,12 @@ export function normalizeMetadata(metadata) {
     "base_model",
     "metrics",
     "task_categories",
+    "task_ids",
     "annotations_creators",
     "language_creators",
     "source_datasets",
     "size_categories",
+    "multilinguality",
   ];
 
   arrayFields.forEach((field) => {
@@ -60,6 +62,17 @@ export function normalizeMetadata(metadata) {
       normalized[field] = [normalized[field]];
     }
   });
+
+  // Handle dataset_info nesting if it exists
+  if (normalized.dataset_info) {
+    if (Array.isArray(normalized.dataset_info)) {
+      // Sometimes it's a list of config infos
+      normalized.configs = normalized.dataset_info;
+    } else if (typeof normalized.dataset_info === "object") {
+      // Single config info
+      normalized.configs = [normalized.dataset_info];
+    }
+  }
 
   return normalized;
 }

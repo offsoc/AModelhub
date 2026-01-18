@@ -1178,3 +1178,92 @@ export KOHAKU_HUB_DATABASE_KEY="$(openssl rand -hex 32)"
 # Optional: Require auth for fallback
 export KOHAKU_HUB_FALLBACK_REQUIRE_AUTH=false  # Default: false
 ```
+## Dataset Viewer API
+
+Kohaku Hub provides an advanced Dataset Viewer API that allows for auto-detection of metadata, streaming of rows, and calculation of column statistics. This API is used by the Data Studio UI.
+
+### Endpoints
+
+| Endpoint | Method | Auth | Description |
+|----------|--------|------|-------------|
+| `/api/datasets/{namespace}/{repo}/viewer/info` | GET | ○ | Get configuration and split information |
+| `/api/datasets/{namespace}/{repo}/viewer/rows` | GET | ○ | Stream and filter rows from a split |
+| `/api/datasets/{namespace}/{repo}/metadata` | GET | ○ | Get comprehensive auto-detected metadata |
+| `/api/datasets/{namespace}/{repo}/configs` | GET | ○ | List available subsets/configurations |
+| `/api/datasets/{namespace}/{repo}/splits/{split}/statistics` | GET | ○ | Calculate column statistics via sampling |
+
+### Get Dataset Info
+Returns a list of available configurations and their splits.
+
+**Example Response:**
+```json
+{
+  "configs": ["default"],
+  "info": {
+    "default": {
+      "splits": {
+        "train": {
+          "num_bytes": 1024567,
+          "num_examples": 50000,
+          "dataset_name": "my-dataset"
+        }
+      },
+      "features": {
+        "text": {"dtype": "string", "_type": "Value"},
+        "label": {"num_classes": 2, "_type": "ClassLabel", "names": ["neg", "pos"]}
+      }
+    }
+  }
+}
+```
+
+### Stream Rows
+Fetch rows from a specific split with optional filtering.
+
+**Parameters:**
+- `config` (string): Subset name (default: "default")
+- `split` (string): Split name (default: "train")
+- `offset` (int): Row offset for pagination
+- `limit` (int): Number of rows to return (max 500)
+- `where` (string): SQL-like filter expression (e.g., `label == 1`)
+
+**Security Note:** Filtering expressions are executed in a sandboxed environment with no access to builtins or sensitive modules.
+
+**Media Serialization:** Large images (>2MB) or long audio files (>30s) are not inlined in the response. Instead, a placeholder or error message is returned to ensure API performance.
+
+### Dataset Metadata
+Auto-detects dataset properties using the `datasets` library.
+
+**Example Response:**
+```json
+{
+  "statistics": {
+    "total_rows": 50000,
+    "num_features": 2,
+    "num_splits": 1,
+    "total_bytes": 1024567
+  },
+  "splits": {
+    "train": {"num_rows": 50000, "num_bytes": 1024567, "num_columns": 2}
+  },
+  "features": {
+    "text": {"type": "Value", "dtype": "string"},
+    "label": {"type": "ClassLabel", "num_classes": 2}
+  },
+  "type_distribution": {
+    "text": 1,
+    "categorical": 1
+  }
+}
+```
+
+### Column Statistics
+Calculates detailed statistics by sampling a subset of the data.
+
+**Parameters:**
+- `sample_size` (int): Number of rows to sample (100 to 10,000)
+
+**Returns:**
+- Numerical stats: `min`, `max`, `mean`, `median`
+- Categorical stats: `uniqueCount`, `mostCommon`, `mostCommonCount`
+- General stats: `count`, `nullCount`, `type`

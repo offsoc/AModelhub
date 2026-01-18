@@ -1,8 +1,8 @@
 <script setup>
 import { ref, computed, watch } from "vue";
 import { ElMessage } from "element-plus";
-import DatasetViewer from "@/components/DatasetViewer/DatasetViewer.vue";
-import { detectFormat } from "@/components/DatasetViewer/api";
+import DatasetStudio from "@/components/DatasetViewer/DatasetStudio.vue";
+import DatasetUseInDatasetsModal from "@/components/DatasetViewer/DatasetUseInDatasetsModal.vue";
 
 const props = defineProps({
   repoType: {
@@ -27,6 +27,7 @@ const props = defineProps({
   },
 });
 
+const viewMode = ref("file"); // 'file' or 'studio'
 const selectedFile = ref(null);
 const fileUrl = ref(null);
 const loadingUrl = ref(false);
@@ -51,6 +52,9 @@ const currentPreviewData = ref(null);
 const showMediaModal = ref(false);
 const modalMediaUrl = ref("");
 const modalMediaType = ref("image");
+
+// Use in Datasets modal state
+const showUseInDatasetsModal = ref(false);
 
 // Handle row selection
 function handleRowSelected(index) {
@@ -222,7 +226,7 @@ async function loadFolder(folder) {
     ElMessage.error({
       message: `Failed to load folder: ${err.message}`,
       duration: 5000,
-    });
+      });
     selectedFolder.value = null;
   } finally {
     loadingFolder.value = false;
@@ -289,8 +293,48 @@ function formatSize(bytes) {
 
 <template>
   <div class="dataset-viewer-tab">
-    <!-- Full width layout: File list on left, Viewer on right -->
-    <div class="grid grid-cols-1 lg:grid-cols-[280px_1fr] gap-4">
+    
+    <!-- View Mode Switcher & Use in Datasets -->
+    <div class="flex flex-col sm:flex-row justify-between items-center mb-6 gap-4">
+        <!-- Spacer for alignment -->
+        <div class="hidden sm:block flex-1"></div>
+
+        <!-- View Mode Switcher -->
+        <div class="inline-flex rounded-md shadow-sm" role="group">
+            <button type="button" @click="viewMode = 'file'" 
+                :class="['px-4 py-2 text-sm font-medium border border-gray-200 dark:border-gray-700 rounded-l-lg hover:bg-gray-100 dark:hover:bg-gray-700 focus:z-10 focus:ring-2 focus:ring-blue-700 focus:text-blue-700 dark:focus:text-white', 
+                viewMode === 'file' ? 'bg-blue-50 dark:bg-blue-900 text-blue-700 dark:text-white' : 'bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-400']">
+                <div class="i-carbon-document inline-block mr-1"/> File Preview
+            </button>
+            <button type="button" @click="viewMode = 'studio'" 
+                :class="['px-4 py-2 text-sm font-medium border-t border-b border-r border-gray-200 dark:border-gray-700 rounded-r-lg hover:bg-gray-100 dark:hover:bg-gray-700 focus:z-10 focus:ring-2 focus:ring-blue-700 focus:text-blue-700 dark:focus:text-white',
+                 viewMode === 'studio' ? 'bg-blue-50 dark:bg-blue-900 text-blue-700 dark:text-white' : 'bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-400']">
+                 <div class="i-carbon-data-vis-1 inline-block mr-1"/> Data Studio
+            </button>
+        </div>
+
+        <!-- Use in Datasets Button -->
+        <div class="flex-1 flex justify-end w-full sm:w-auto">
+            <button 
+                @click="showUseInDatasetsModal = true"
+                class="inline-flex items-center px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 dark:bg-gray-800 dark:text-gray-300 dark:border-gray-600 dark:hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition-colors shadow-sm"
+            >
+                <div class="i-carbon-code mr-2"/> Use in Datasets
+            </button>
+        </div>
+    </div>
+    
+    <!-- Data Studio Mode -->
+    <div v-if="viewMode === 'studio'">
+        <DatasetStudio 
+            :namespace="namespace"
+            :name="name"
+            :branch="branch"
+        />
+    </div>
+
+    <!-- File Preview Mode (Existing) -->
+    <div v-else class="grid grid-cols-1 lg:grid-cols-[280px_1fr] gap-4">
       <!-- File List Sidebar (no max height - can grow) -->
       <div class="file-sidebar flex flex-col gap-3">
         <!-- File List Card -->
@@ -670,6 +714,12 @@ function formatSize(bytes) {
       </div>
     </div>
   </div>
+
+  <DatasetUseInDatasetsModal
+    v-model:visible="showUseInDatasetsModal"
+    :namespace="namespace"
+    :name="name"
+  />
 </template>
 
 <style scoped>

@@ -108,9 +108,13 @@ app.include_router(xet_token.router, prefix=cfg.app.api_base, tags=["xet"])
 app.include_router(xet_cas.router, tags=["xet-cas"])
 
 # Conditional: Dataset Viewer (Kohaku License)
+# Conditional: Dataset Viewer (Kohaku License)
 if not cfg.app.disable_dataset_viewer:
     app.include_router(dataset_viewer.router, prefix=cfg.app.api_base)
-    logger.info("Dataset Viewer enabled (Kohaku Software License 1.0)")
+    # Add our new extended viewer (datasets library based)
+    from kohakuhub.api.datasets import router as datasets_router
+    app.include_router(datasets_router, prefix=cfg.app.api_base)
+    logger.info("Dataset Viewer (Extended) enabled")
 else:
     logger.info("Dataset Viewer disabled (AGPL-3 only build)")
 

@@ -41,6 +41,9 @@ dependencies = [
     "toml",
     "uvicorn",
     "pillow",
+    "datasets",
+    "duckdb",
+    "pyarrow",
 ]
 urls = { "Homepage" = "https://kblueleaf.net/Kohaku-Hub" }
 

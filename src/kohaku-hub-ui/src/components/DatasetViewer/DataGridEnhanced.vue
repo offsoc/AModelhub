@@ -14,6 +14,10 @@ const props = defineProps({
     type: Boolean,
     default: false,
   },
+  columnStats: {
+    type: Object,
+    default: () => ({}),
+  },
 });
 
 const emit = defineEmits(["row-selected"]);
@@ -176,6 +180,25 @@ function getMediaUrl(value) {
   return null;
 }
 
+// Check if value is Audio
+function isAudio(value) {
+  if (!value) return false;
+  
+  // Check for audio dict object from backend
+  if (typeof value === 'object' && value !== null && value.src) {
+      const src = String(value.src);
+      return src.startsWith("data:audio/") || src.startsWith("http");
+  }
+
+  const str = String(value);
+  return str.startsWith("data:audio/") || str.endsWith(".wav") || str.endsWith(".mp3") || str.endsWith(".ogg");
+}
+
+function getAudioSrc(value) {
+    if (typeof value === 'object' && value !== null && value.src) return value.src;
+    return String(value);
+}
+
 // Toggle row detail
 function toggleRowDetail(index) {
   if (selectedRowIndex.value === index) {
@@ -198,6 +221,24 @@ function openMediaModal(value, type) {
 function closeMediaModal() {
   showMediaModal.value = false;
   modalMediaUrl.value = "";
+}
+
+function getColumnTypeIcon(type) {
+  const icons = {
+    'numeric': 'i-carbon-chart-line',
+    'categorical': 'i-carbon-categories',
+    'text': 'i-carbon-text-annotation',
+  };
+  return icons[type] || 'i-carbon-unknown';
+}
+
+function getColumnTypeColor(type) {
+  const colors = {
+    'numeric': 'text-blue-600 dark:text-blue-400',
+    'categorical': 'text-purple-600 dark:text-purple-400',
+    'text': 'text-green-600 dark:text-green-400',
+  };
+  return colors[type] || 'text-gray-600 dark:text-gray-400';
 }
 </script>
 
@@ -235,6 +276,7 @@ function closeMediaModal() {
               @click="toggleSort(column)"
             >
               <div class="flex items-center gap-2">
+                <div v-if="columnStats[column]" :class="[getColumnTypeIcon(columnStats[column].type), getColumnTypeColor(columnStats[column].type)]" class="text-xs" />
                 <span>{{ column }}</span>
                 <span
                   v-if="sortColumn === column"
@@ -302,6 +344,14 @@ function closeMediaModal() {
                 >
                   {{ String(value).split("/").pop() }}
                 </span>
+              </div>
+
+              <!-- Audio Player -->
+              <div v-else-if="isAudio(value)" class="flex items-center gap-2">
+                 <audio controls :src="getAudioSrc(value)" class="h-8 max-w-[220px]" preload="none"></audio>
+                 <span v-if="typeof value === 'object'" class="text-xs text-gray-500">
+                    {{ value.sampling_rate ? (value.sampling_rate/1000).toFixed(1) + 'kHz' : '' }}
+                 </span>
               </div>
 
               <!-- Regular text value -->
