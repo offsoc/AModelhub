@@ -7,7 +7,7 @@ for users and organizations with separate tracking for private and public reposi
 import asyncio
 
 from kohakuhub.config import cfg
-from kohakuhub.db import File, LFSObjectHistory, Repository, User
+from kohakuhub.db import File, LFSObjectHistory, Repository, User, XetBlock, XetFileLayout
 from kohakuhub.db_operations import get_organization
 from kohakuhub.logger import get_logger
 from kohakuhub.utils.lakefs import get_lakefs_client, lakefs_repo_name
@@ -111,11 +111,20 @@ async def calculate_repository_storage(repo: Repository) -> dict[str, int]:
     )
 
     lfs_unique_bytes = sum(obj.size for obj in unique_lfs)
+    # Calculate Xet storage (unique blocks linked to this repository's files)
+    unique_xet_blocks = (
+        XetBlock.select(XetBlock.hash, XetBlock.size)
+        .join(XetFileLayout)
+        .join(File)
+        .where(File.repository == repo)
+        .distinct()
+    )
+    
+    xet_unique_bytes = sum(block.size for block in unique_xet_blocks)
 
-    # Total storage = non-LFS in current branch + unique LFS storage (deduplicated)
-    # Using lfs_unique_bytes ensures global deduplication works correctly for quota
-    # This avoids counting the same SHA256 object multiple times across versions
-    total_bytes = current_branch_non_lfs_bytes + lfs_unique_bytes
+    # Total storage = non-LFS current + unique LFS history + unique Xet blocks
+    # Note: This might overlap if LFS files are being chunked, but ensures all CAS is tracked.
+    total_bytes = current_branch_non_lfs_bytes + lfs_unique_bytes + xet_unique_bytes
 
     return {
         "total_bytes": total_bytes,
@@ -123,6 +132,7 @@ async def calculate_repository_storage(repo: Repository) -> dict[str, int]:
         "current_branch_non_lfs_bytes": current_branch_non_lfs_bytes,
         "lfs_total_bytes": lfs_total_bytes,
         "lfs_unique_bytes": lfs_unique_bytes,
+        "xet_unique_bytes": xet_unique_bytes,
     }
 
 

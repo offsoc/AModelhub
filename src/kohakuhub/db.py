@@ -521,6 +521,16 @@ class ConfirmationToken(BaseModel):
         indexes = ((("action_type", "expires_at"), False),)  # For cleanup queries
 
 
+class XetShard(BaseModel):
+    """Xet metadata shard (mapping of blocks to xorbs)."""
+
+    id = AutoField()
+    shard_id = CharField(unique=True, index=True)
+    storage_key = CharField()
+    size = BigIntegerField()
+    created_at = DateTimeField(default=partial(datetime.now, tz=timezone.utc))
+
+
 class DatasetAccessRequest(BaseModel):
     """Access requests for gated datasets."""
 
@@ -581,6 +591,51 @@ class DatasetSnapshot(BaseModel):
         indexes = ((("repository", "revision"), True),)
 
 
+class XetBlock(BaseModel):
+    """Content-addressed data block (chunk)."""
+
+    id = AutoField()
+    hash = CharField(unique=True, index=True)  # SHA256 of the block content
+    size = BigIntegerField()
+    created_at = DateTimeField(default=partial(datetime.now, tz=timezone.utc))
+
+
+class XetXorb(BaseModel):
+    """Storage container for grouped blocks."""
+
+    id = AutoField()
+    xorb_id = CharField(unique=True, index=True)  # Generally SHA256 of the xorb content
+    storage_key = CharField()  # S3 key where the xorb is stored
+    size = BigIntegerField()
+    created_at = DateTimeField(default=partial(datetime.now, tz=timezone.utc))
+
+
+class XetBlockPlacement(BaseModel):
+    """Maps a block to its physical location within a xorb."""
+
+    id = AutoField()
+    block = ForeignKeyField(XetBlock, backref="placements", on_delete="CASCADE", index=True)
+    xorb = ForeignKeyField(XetXorb, backref="blocks", on_delete="CASCADE", index=True)
+    offset = BigIntegerField()  # Offset within the xorb
+    length = BigIntegerField()  # Length of the block in the xorb
+
+    class Meta:
+        indexes = ((("xorb", "offset"), True),)
+
+
+class XetFileLayout(BaseModel):
+    """Maps a logical file to its sequence of content-addressed blocks."""
+
+    id = AutoField()
+    file = ForeignKeyField(File, backref="xet_layout", on_delete="CASCADE", index=True)
+    block = ForeignKeyField(XetBlock, backref="file_usages", on_delete="CASCADE", index=True)
+    sequence_order = IntegerField()  # Position in the file
+    file_offset = BigIntegerField()  # Start offset in the logical file
+
+    class Meta:
+        indexes = ((("file", "sequence_order"), True),)
+
+
 def init_db():
     db.connect(reuse_if_open=True)
     db.create_tables(
@@ -606,6 +661,11 @@ def init_db():
             DatasetAccessRequest,
             DatasetLineage,
             DatasetSnapshot,
+            XetBlock,
+            XetXorb,
+            XetShard,
+            XetBlockPlacement,
+            XetFileLayout,
         ],
         safe=True,
     )

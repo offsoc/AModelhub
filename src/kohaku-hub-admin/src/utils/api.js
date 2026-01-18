@@ -233,6 +233,44 @@ export async function getTopRepositories(token, limit = 10, by = "commits") {
   return response.data;
 }
 
+// ===== Xet Metrics & Stats =====
+
+/**
+ * Get high-level Xet storage statistics
+ * @param {string} token - Admin token
+ * @returns {Promise<Object>} Xet stats
+ */
+export async function getXetStats(token) {
+  const client = createAdminClient(token);
+  const response = await client.get("/xet/stats");
+  return response.data;
+}
+
+/**
+ * Get top repositories by Xet usage
+ * @param {string} token - Admin token
+ * @param {number} limit - Number of top repos
+ * @returns {Promise<Array>} Top Xet repositories
+ */
+export async function getTopXetRepos(token, limit = 10) {
+  const client = createAdminClient(token);
+  const response = await client.get("/xet/metrics/top-repos", {
+    params: { limit },
+  });
+  return response.data;
+}
+
+/**
+ * Get Xet block size distribution
+ * @param {string} token - Admin token
+ * @returns {Promise<Object>} Block distribution
+ */
+export async function getBlockDistribution(token) {
+  const client = createAdminClient(token);
+  const response = await client.get("/xet/metrics/distribution");
+  return response.data;
+}
+
 /**
  * Verify admin token is valid
  * @param {string} token - Admin token

@@ -24,6 +24,7 @@ from kohakuhub.api.admin.routers import (
     stats_router,
     storage_router,
     users_router,
+    xet_router,
 )
 
 # Create main admin router
@@ -40,5 +41,6 @@ router.include_router(invitations_router, tags=["admin-invitations"])
 router.include_router(search_router, tags=["admin-search"])
 router.include_router(database_router, tags=["admin-database"])
 router.include_router(fallback_router, tags=["admin-fallback"])
+router.include_router(xet_router, prefix="/xet", tags=["admin-xet"])
 
 __all__ = ["router"]

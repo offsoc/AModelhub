@@ -10,6 +10,7 @@ from kohakuhub.api.admin.routers.search import router as search_router
 from kohakuhub.api.admin.routers.stats import router as stats_router
 from kohakuhub.api.admin.routers.storage import router as storage_router
 from kohakuhub.api.admin.routers.users import router as users_router
+from kohakuhub.api.admin.routers.xet import router as xet_router
 
 __all__ = [
     "commits_router",
@@ -22,4 +23,5 @@ __all__ = [
     "stats_router",
     "storage_router",
     "users_router",
+    "xet_router",
 ]

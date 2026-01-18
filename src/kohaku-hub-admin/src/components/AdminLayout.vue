@@ -38,6 +38,11 @@ const menuItems = [
     icon: "i-carbon-connect",
   },
   {
+    path: "/xet-dashboard",
+    label: "Xet Dashboard",
+    icon: "i-carbon-chart-average",
+  },
+  {
     path: "/QuotaOverview",
     label: "Quota Overview",
     icon: "i-carbon-meter",

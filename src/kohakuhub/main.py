@@ -36,8 +36,8 @@ from kohakuhub.api.git.routers import lfs, ssh_keys
 from kohakuhub.api.repo.routers import crud as repo_crud
 from kohakuhub.api.repo.routers import info as repo_info
 from kohakuhub.api.repo.routers import tree as repo_tree
-from kohakuhub.api.xet.routers import cas as xet_cas
-from kohakuhub.api.xet.routers import xet as xet_token
+from kohakuhub.api.xet.routers import xet as xet_token, cas as xet_cas, shards as xet_shards
+from kohakuhub.api.xet.background_tasks import xet_background_worker
 
 # Conditional import for Dataset Viewer
 if not cfg.app.disable_dataset_viewer:
@@ -63,6 +63,11 @@ async def lifespan(app: FastAPI):
         logger.warning("=" * 80)
 
     init_storage()
+    
+    # Start Xet background worker
+    import asyncio
+    asyncio.create_task(xet_background_worker())
+    
     yield
 
 
@@ -105,7 +110,8 @@ app.include_router(git_http.router, tags=["git"])
 app.include_router(ssh_keys.router, tags=["ssh-keys"])
 app.include_router(validation.router, tags=["validation"])
 app.include_router(xet_token.router, prefix=cfg.app.api_base, tags=["xet"])
-app.include_router(xet_cas.router, tags=["xet-cas"])
+app.include_router(xet_cas.router, prefix="/cas", tags=["xet-cas"])
+app.include_router(xet_shards.router, prefix="/cas", tags=["xet-shards"])
 
 # Conditional: Dataset Viewer (Kohaku License)
 # Conditional: Dataset Viewer (Kohaku License)

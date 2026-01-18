@@ -62,6 +62,26 @@ class QuotaConfig(BaseModel):
     default_org_public_quota_bytes: int | None = None  # None = unlimited
 
 
+class RedisConfig(BaseModel):
+    """Redis configuration for caching."""
+
+    enabled: bool = False
+    host: str = "localhost"
+    port: int = 6379
+    db: int = 0
+    password: str | None = None
+
+
+class XetConfig(BaseModel):
+    """Xet specific configuration."""
+
+    enabled: bool = True
+    cas_cache_dir: str = "cache/cas"
+    cas_cache_max_size_gb: int = 10
+    cas_shard_generation_interval: int = 3600  # 1 hour
+    cas_compaction_interval: int = 3600  # 1 hour
+
+
 class FallbackConfig(BaseModel):
     """Fallback source configuration."""
 
@@ -165,6 +185,8 @@ class Config(BaseModel):
     admin: AdminConfig = AdminConfig()
     quota: QuotaConfig = QuotaConfig()
     fallback: FallbackConfig = FallbackConfig()
+    redis: RedisConfig = RedisConfig()
+    xet: XetConfig = XetConfig()
     app: AppConfig
 
     def validate_production_safety(self) -> list[str]:
@@ -391,6 +413,36 @@ def load_config(path: str = None) -> Config:
     if fallback_env:
         config_from_env["fallback"] = fallback_env
 
+    # Redis
+    redis_env = {}
+    if "KOHAKU_HUB_REDIS_ENABLED" in os.environ:
+        redis_env["enabled"] = os.environ["KOHAKU_HUB_REDIS_ENABLED"].lower() == "true"
+    if "KOHAKU_HUB_REDIS_HOST" in os.environ:
+        redis_env["host"] = os.environ["KOHAKU_HUB_REDIS_HOST"]
+    if "KOHAKU_HUB_REDIS_PORT" in os.environ:
+        redis_env["port"] = int(os.environ["KOHAKU_HUB_REDIS_PORT"])
+    if "KOHAKU_HUB_REDIS_DB" in os.environ:
+        redis_env["db"] = int(os.environ["KOHAKU_HUB_REDIS_DB"])
+    if "KOHAKU_HUB_REDIS_PASSWORD" in os.environ:
+        redis_env["password"] = os.environ["KOHAKU_HUB_REDIS_PASSWORD"]
+    if redis_env:
+        config_from_env["redis"] = redis_env
+
+    # Xet
+    xet_env = {}
+    if "KOHAKU_HUB_XET_ENABLED" in os.environ:
+        xet_env["enabled"] = os.environ["KOHAKU_HUB_XET_ENABLED"].lower() == "true"
+    if "KOHAKU_HUB_XET_CACHE_DIR" in os.environ:
+        xet_env["cas_cache_dir"] = os.environ["KOHAKU_HUB_XET_CACHE_DIR"]
+    if "KOHAKU_HUB_XET_CACHE_MAX_SIZE_GB" in os.environ:
+        xet_env["cas_cache_max_size_gb"] = int(os.environ["KOHAKU_HUB_XET_CACHE_MAX_SIZE_GB"])
+    if "KOHAKU_HUB_XET_SHARD_GEN_INTERVAL" in os.environ:
+        xet_env["cas_shard_generation_interval"] = int(os.environ["KOHAKU_HUB_XET_SHARD_GEN_INTERVAL"])
+    if "KOHAKU_HUB_XET_COMPACTION_INTERVAL" in os.environ:
+        xet_env["cas_compaction_interval"] = int(os.environ["KOHAKU_HUB_XET_COMPACTION_INTERVAL"])
+    if xet_env:
+        config_from_env["xet"] = xet_env
+
     # App
     app_env = {}
     if "KOHAKU_HUB_BASE_URL" in os.environ:
@@ -449,6 +501,7 @@ def load_config(path: str = None) -> Config:
     admin_config = AdminConfig(**merged_config.get("admin", {}))
     quota_config = QuotaConfig(**merged_config.get("quota", {}))
     fallback_config = FallbackConfig(**merged_config.get("fallback", {}))
+    redis_config = RedisConfig(**merged_config.get("redis", {}))
     app_config = AppConfig(**merged_config.get("app", {}))
 
     return Config(
@@ -459,6 +512,8 @@ def load_config(path: str = None) -> Config:
         admin=admin_config,
         quota=quota_config,
         fallback=fallback_config,
+        redis=redis_config,
+        xet=XetConfig(**merged_config.get("xet", {})),
         app=app_config,
     )
 
