@@ -182,6 +182,11 @@ class Repository(BaseModel):
     gated = BooleanField(default=False, index=True)
     gated_message = TextField(null=True)  # Instructions or reason for gating
 
+    # HF-style metadata
+    tags = TextField(null=True)  # JSON list of tags
+    pipeline_tag = CharField(null=True, index=True)  # e.g., text-classification
+    license = CharField(null=True, index=True)
+
     # Social metrics (denormalized counters for fast queries)
     downloads = IntegerField(default=0)  # Total download sessions (not file count)
     likes_count = IntegerField(default=0)  # Total likes
@@ -636,6 +641,29 @@ class XetFileLayout(BaseModel):
         indexes = ((("file", "sequence_order"), True),)
 
 
+class Discussion(BaseModel):
+    id = AutoField()
+    repository = ForeignKeyField(
+        Repository, backref="discussions", on_delete="CASCADE", index=True
+    )
+    title = CharField()
+    author = ForeignKeyField(User, backref="discussions", on_delete="CASCADE", index=True)
+    status = CharField(default="open")  # open, closed
+    created_at = DateTimeField(default=partial(datetime.now, tz=timezone.utc))
+    updated_at = DateTimeField(default=partial(datetime.now, tz=timezone.utc))
+
+
+class Comment(BaseModel):
+    id = AutoField()
+    discussion = ForeignKeyField(
+        Discussion, backref="comments", on_delete="CASCADE", index=True
+    )
+    author = ForeignKeyField(User, backref="comments", on_delete="CASCADE", index=True)
+    content = TextField()
+    created_at = DateTimeField(default=partial(datetime.now, tz=timezone.utc))
+    updated_at = DateTimeField(default=partial(datetime.now, tz=timezone.utc))
+
+
 def init_db():
     db.connect(reuse_if_open=True)
     db.create_tables(
@@ -666,6 +694,8 @@ def init_db():
             XetShard,
             XetBlockPlacement,
             XetFileLayout,
+            Discussion,
+            Comment,
         ],
         safe=True,
     )

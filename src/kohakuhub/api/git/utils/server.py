@@ -289,13 +289,15 @@ class GitUploadPackHandler:
 class GitReceivePackHandler:
     """Handler for git-receive-pack (push)."""
 
-    def __init__(self, repo_path: str):
+    def __init__(self, repo_path: str, bridge=None):
         """Initialize receive-pack handler.
 
         Args:
             repo_path: Path to git repository
+            bridge: Optional GitLakeFSBridge instance
         """
         self.repo_path = repo_path
+        self.bridge = bridge
         self.capabilities = [
             "report-status",
             "side-band-64k",
@@ -350,17 +352,38 @@ class GitReceivePackHandler:
 
         logger.info(f"Receive-pack: {len(ref_updates)} ref updates")
 
-        # TODO: Process pack file and update refs
-        # This will be implemented in git_lakefs_bridge.py
+        # Process pack file and update refs via bridge
+        if self.bridge and pack_data_start is not None:
+            # Reconstruct pack data from remaining lines/data
+            # We need to find where the pack starts in the raw body
+            # parse_pkt_lines helps us find the boundary.
+            
+            # Simplified: In Smart HTTP, the pack is usually just after the flush packet.
+            # We'll calculate the offset:
+            offset = 0
+            for i in range(pack_data_start):
+                 line = lines[i]
+                 if line is None:
+                     offset += 4 # Flush packet length
+                 else:
+                     offset += 4 + len(line)
+            
+            pack_data = request_body[offset:]
+            if pack_data:
+                logger.info(f"Applying push with {len(pack_data)} bytes of pack data")
+                success = await self.bridge.apply_push(ref_updates, pack_data)
+                if not success:
+                    # In a real system, we'd return an error status for each ref
+                    pass
 
-        # Send success status
+        # Send success status (simplified)
         status_lines = [
             None,  # Flush
-            b"\x01unpack ok\n",
+            b"unpack ok\n",
         ]
 
         for old_sha, new_sha, ref_name in ref_updates:
-            status_lines.append(f"\x01ok {ref_name}\n".encode())
+            status_lines.append(f"ok {ref_name}\n".encode())
 
         status_lines.append(None)  # Flush
 

@@ -36,6 +36,7 @@ from kohakuhub.api.git.routers import lfs, ssh_keys
 from kohakuhub.api.repo.routers import crud as repo_crud
 from kohakuhub.api.repo.routers import info as repo_info
 from kohakuhub.api.repo.routers import tree as repo_tree
+from kohakuhub.api.git.routers import hf_api
 from kohakuhub.api.xet.routers import xet as xet_token, cas as xet_cas, shards as xet_shards
 from kohakuhub.api.xet.background_tasks import xet_background_worker
 
@@ -92,6 +93,7 @@ app.include_router(external_tokens.router, prefix=cfg.app.api_base, tags=["auth"
 app.include_router(repo_crud.router, prefix=cfg.app.api_base, tags=["repositories"])
 app.include_router(repo_info.router, prefix=cfg.app.api_base, tags=["repositories"])
 app.include_router(repo_tree.router, prefix=cfg.app.api_base, tags=["repositories"])
+app.include_router(hf_api.router, prefix=cfg.app.api_base, tags=["hub"])
 app.include_router(files.router, prefix=cfg.app.api_base, tags=["files"])
 app.include_router(commits, prefix=cfg.app.api_base, tags=["commits"])
 app.include_router(commit_history.router, prefix=cfg.app.api_base, tags=["commits"])
@@ -119,8 +121,25 @@ if not cfg.app.disable_dataset_viewer:
     app.include_router(dataset_viewer.router, prefix=cfg.app.api_base)
     # Add our new extended viewer (datasets library based)
     from kohakuhub.api.datasets import router as datasets_router
+    from kohakuhub.api import viewer_v2
+    import gradio as gr
+
     app.include_router(datasets_router, prefix=cfg.app.api_base)
-    logger.info("Dataset Viewer (Extended) enabled")
+    app.include_router(viewer_v2.router, prefix=cfg.app.api_base)
+
+    # Mount Gradio Apps (Refined for HF components)
+    from kohakuhub.api import inference
+    from kohakuhub.api import spaces
+    from kohakuhub.api import discussions
+    app.include_router(inference.router, prefix=cfg.app.api_base)
+    app.include_router(spaces.router, prefix=cfg.app.api_base)
+    app.include_router(discussions.router, prefix=cfg.app.api_base)
+    
+    gr.mount_gradio_app(app, viewer_v2.create_hf_dataset_viewer("placeholder", "main", data_files=[]), path="/viewer/dataset")
+    gr.mount_gradio_app(app, viewer_v2.create_hf_model_widget("placeholder"), path="/viewer/model")
+    gr.mount_gradio_app(app, inference.create_inference_gradio("placeholder"), path="/inference/widget")
+    
+    logger.info("Dataset Viewer, Viewer V2, Private Inference, Spaces, and Discussions enabled")
 else:
     logger.info("Dataset Viewer disabled (AGPL-3 only build)")
 

@@ -116,7 +116,7 @@ async def git_info_refs(
 
     # Get refs from LakeFS using the repository's actual type
     bridge = GitLakeFSBridge(repo.repo_type, namespace, name)
-    refs = await bridge.get_refs(branch="main")
+    refs = await bridge.get_refs()
 
     # Generate service advertisement
     if service == "git-upload-pack":
@@ -230,8 +230,11 @@ async def git_receive_pack(
     # Read request body
     request_body = await request.body()
 
+    # Create bridge for LakeFS integration using the repository's actual type
+    bridge = GitLakeFSBridge(repo.repo_type, namespace, name)
+
     # Handle receive-pack
-    handler = GitReceivePackHandler(repo_id)
+    handler = GitReceivePackHandler(repo_id, bridge=bridge)
     response_data = await handler.handle_receive_pack(request_body)
 
     return Response(

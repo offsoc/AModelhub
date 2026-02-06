@@ -28,6 +28,7 @@ from kohakuhub.utils.lakefs import get_lakefs_client, lakefs_repo_name
 from kohakuhub.utils.s3 import get_object_metadata, object_exists
 from kohakuhub.api.quota.util import update_namespace_storage, update_repository_storage
 from kohakuhub.api.repo.utils.gc import run_gc_for_file, track_lfs_object
+from kohakuhub.api.repo.utils.metadata import parse_readme_metadata, update_repository_metadata
 
 logger = get_logger("FILE")
 router = APIRouter()
@@ -741,6 +742,7 @@ async def commit(
     # Process operations using match-case
     files_changed = False
     pending_lfs_tracking = []
+    readme_content = None
 
     for op in operations:
         key = op["key"]
@@ -751,9 +753,16 @@ async def commit(
         match key:
             case "file":
                 # Regular file with inline content
+                content_b64 = value.get("content")
+                if path == "README.md" and content_b64:
+                    try:
+                        readme_content = base64.b64decode(content_b64).decode("utf-8")
+                    except Exception:
+                        pass
+
                 changed = await process_regular_file(
                     path=path,
-                    content_b64=value.get("content"),
+                    content_b64=content_b64,
                     encoding=(value.get("encoding") or "").lower(),
                     repo=repo_row,
                     lakefs_repo=lakefs_repo,
@@ -950,6 +959,12 @@ async def commit(
     except Exception as e:
         # Log error but don't fail the commit
         logger.warning(f"Failed to update storage usage for {namespace}: {e}")
+
+    # Update metadata from README.md if it was updated in this commit
+    if readme_content:
+        metadata = parse_readme_metadata(readme_content)
+        if metadata:
+            update_repository_metadata(repo_row, metadata)
 
     return {
         "commitUrl": commit_url,
