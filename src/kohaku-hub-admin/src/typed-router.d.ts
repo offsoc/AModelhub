@@ -29,6 +29,7 @@ declare module 'vue-router/auto-routes' {
     '/repositories': RouteRecordInfo<'/repositories', '/repositories', Record<never, never>, Record<never, never>>,
     '/storage': RouteRecordInfo<'/storage', '/storage', Record<never, never>, Record<never, never>>,
     '/users': RouteRecordInfo<'/users', '/users', Record<never, never>, Record<never, never>>,
+    '/xet-dashboard': RouteRecordInfo<'/xet-dashboard', '/xet-dashboard', Record<never, never>, Record<never, never>>,
   }
 
   /**
@@ -84,6 +85,10 @@ declare module 'vue-router/auto-routes' {
     }
     'src/pages/users.vue': {
       routes: '/users'
+      views: never
+    }
+    'src/pages/xet-dashboard.vue': {
+      routes: '/xet-dashboard'
       views: never
     }
   }
