@@ -35,8 +35,9 @@ from kohakuhub.api.git.routers import http as git_http
 from kohakuhub.api.git.routers import lfs, ssh_keys
 from kohakuhub.api.repo.routers import crud as repo_crud
 from kohakuhub.api.repo.routers import info as repo_info
-from kohakuhub.api.repo.routers import tree as repo_tree
-from kohakuhub.api.git.routers import hf_api
+from kohakuhub.api.repo.routers import tree as repo_tree, card as repo_card
+from kohakuhub.api.git.routers import hf_api, git_push
+from kohakuhub.api import version_merge, version_rollback
 from kohakuhub.api.xet.routers import xet as xet_token, cas as xet_cas, shards as xet_shards
 from kohakuhub.api.xet.background_tasks import xet_background_worker
 
@@ -93,7 +94,11 @@ app.include_router(external_tokens.router, prefix=cfg.app.api_base, tags=["auth"
 app.include_router(repo_crud.router, prefix=cfg.app.api_base, tags=["repositories"])
 app.include_router(repo_info.router, prefix=cfg.app.api_base, tags=["repositories"])
 app.include_router(repo_tree.router, prefix=cfg.app.api_base, tags=["repositories"])
+app.include_router(repo_card.router, prefix=cfg.app.api_base, tags=["repositories"])
 app.include_router(hf_api.router, prefix=cfg.app.api_base, tags=["hub"])
+app.include_router(git_push.router, prefix=cfg.app.api_base, tags=["git"])
+app.include_router(version_merge.router, prefix=cfg.app.api_base, tags=["versioning"])
+app.include_router(version_rollback.router, prefix=cfg.app.api_base, tags=["versioning"])
 app.include_router(files.router, prefix=cfg.app.api_base, tags=["files"])
 app.include_router(commits, prefix=cfg.app.api_base, tags=["commits"])
 app.include_router(commit_history.router, prefix=cfg.app.api_base, tags=["commits"])

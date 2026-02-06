@@ -29,6 +29,7 @@ from kohakuhub.utils.s3 import get_object_metadata, object_exists
 from kohakuhub.api.quota.util import update_namespace_storage, update_repository_storage
 from kohakuhub.api.repo.utils.gc import run_gc_for_file, track_lfs_object
 from kohakuhub.api.repo.utils.metadata import parse_readme_metadata, update_repository_metadata
+from kohakuhub.api.repo.utils.modelcard import generate_default_card, update_card_with_metrics, sync_card_to_db
 
 logger = get_logger("FILE")
 router = APIRouter()
@@ -743,6 +744,7 @@ async def commit(
     files_changed = False
     pending_lfs_tracking = []
     readme_content = None
+    eval_metrics = header.get("eval_metrics") # Extract metrics from header
 
     for op in operations:
         key = op["key"]
@@ -856,6 +858,11 @@ async def commit(
         )
     except Exception as e:
         raise HTTPException(500, detail={"error": f"Commit failed: {str(e)}"})
+
+    # Post-commit: Automated Model Card management
+    # If README was not explicitly updated but we have metrics, 
+    # we might want to update the existing README or create one.
+    # For now, let's sync DB if README was updated.
 
     # Poll to verify commit is accessible (LakeFS needs time to process large commits)
     commit_id = commit_result["id"]
